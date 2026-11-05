@@ -279,61 +279,67 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header("🔮 Forward Prediction (ทำนายแนวทางงวดถัดไป)")
     st.write(f"📁 อ้างอิงข้อมืองวดล่าสุดจากไฟล์: `{active_csv_file}` ({selected_day_tab})")
     
-    if not df_main.empty:
+    # ตรวจสอบว่า df_main ไม่ว่างและมีคอลัมน์ 'date' อยู่จริง
+    if not df_main.empty and 'date' in df_main.columns:
         latest = df_main.iloc[0]
-        latest_dt = parse_thai_date(latest['date'])
         
-        st.write(f"📅 ข้อมูลงวดล่าสุดวันที่: **{latest['date']}**")
-        st.write(f"3 ตัวบน: `{latest['top_3']}` | 2 ตัวล่าง: `{latest['bottom_2']}`")
-        
-        if pd.notna(latest_dt):
-            next_dt = latest_dt + pd.Timedelta(days=1)
-            day_selected = next_dt.day_name()
-            st.info(f"📅 ระบบคำนวณวันของงวดถัดไปให้อัตโนมัติ: **{day_selected}** ({next_dt.strftime('%d/%m/%Y')})")
+        # ป้องกันกรณีที่ไฟล์ CSV มีหัวตารางแต่ไม่มีข้อมูลแถว (Row) ด้านใน
+        if pd.isna(latest['date']) or str(latest['date']).strip() == "":
+            st.warning(f"⚠️ ไฟล์ `{active_csv_file}` มีหัวตารางแล้ว แต่ยังไม่มีข้อมูลผลรางวัล กรุณาไปเพิ่มข้อมูลในเมนูที่ 1 ก่อน")
         else:
-            day_selected = st.selectbox(
-                "เลือกวันของงวดถัดไป",
-                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            )
-        
-        if st.button("ประมวลผลทำนายเลข"):
-            daily_6 = DAILY_NUMBERS.get(day_selected, "000000")
-            if day_selected == "Saturday":
-                st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออก 'เลขเบิ้ล' และ 'เลขหาม' สูงมาก แนะนำให้ติดชุดกันไว้เสมอ!")
+            latest_dt = parse_thai_date(latest['date'])
+            
+            st.write(f"📅 ข้อมูลงวดล่าสุดวันที่: **{latest['date']}**")
+            st.write(f"3 ตัวบน: `{latest.get('top_3', '-')}` | 2 ตัวล่าง: `{latest.get('bottom_2', '-')}`")
+            
+            if pd.notna(latest_dt):
+                next_dt = latest_dt + pd.Timedelta(days=1)
+                day_selected = next_dt.day_name()
+                st.info(f"📅 ระบบคำนวณวันของงวดถัดไปให้อัตโนมัติ: **{day_selected}** ({next_dt.strftime('%d/%m/%Y')})")
+            else:
+                day_selected = st.selectbox(
+                    "เลือกวันของงวดถัดไป",
+                    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                )
+            
+            if st.button("ประมวลผลทำนายเลข"):
+                daily_6 = DAILY_NUMBERS.get(day_selected, "000000")
+                if day_selected == "Saturday":
+                    st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออก 'เลขเบิ้ล' และ 'เลขหาม' สูงมาก แนะนำให้ติดชุดกันไว้เสมอ!")
+                    
+                trans = get_transformations(str(latest.get('top_3', '000')), str(latest.get('bottom_2', '00')))
+                carry_list = sorted(list(trans['carry_over']))
+                pm1_list = sorted(list(trans['pm1']))
+                sum_list = sorted(list(trans['sum_formulas']))
+                cross_list = sorted(list(trans['cross_formulas']))
                 
-            trans = get_transformations(latest['top_3'], latest['bottom_2'])
-            carry_list = sorted(list(trans['carry_over']))
-            pm1_list = sorted(list(trans['pm1']))
-            sum_list = sorted(list(trans['sum_formulas']))
-            cross_list = sorted(list(trans['cross_formulas']))
-            
-            digit_scores = {str(i): 0.0 for i in range(10)}
-            for d in daily_6: digit_scores[d] += 2.0
-            for d in carry_list: digit_scores[str(d)] += 2.0
-            for d in pm1_list: digit_scores[str(d)] += 1.5
-            for d in sum_list: digit_scores[d] += 1.5
-            for d in cross_list: digit_scores[str(d)] += 1.0
-            for d in trans['mirror']: digit_scores[d] += 1.0
-            for d in trans['shifted']: digit_scores[d] += 1.0
+                digit_scores = {str(i): 0.0 for i in range(10)}
+                for d in daily_6: digit_scores[d] += 2.0
+                for d in carry_list: digit_scores[str(d)] += 2.0
+                for d in pm1_list: digit_scores[str(d)] += 1.5
+                for d in sum_list: digit_scores[d] += 1.5
+                for d in cross_list: digit_scores[str(d)] += 1.0
+                for d in trans['mirror']: digit_scores[d] += 1.0
+                for d in trans['shifted']: digit_scores[d] += 1.0
 
-            sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
-            den = sorted_digits[0]
-            rong_list = sorted_digits[1:4]
-            gun_list = sorted_digits[4:7]
-            
-            st.success(f"🎯 **สรุปแนวทางเลขเด่นทำนายงวดถัดไป ({day_selected})**")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("เด่น", den, f"{digit_scores[den]:.1f} แต้ม")
-            col2.metric("รอง", " - ".join(rong_list))
-            col3.metric("กัน", " - ".join(gun_list))
-            
-            suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list]
-            suggested_3d = [f"{den}{rong_list[0]}{rong_list[1]}"]
-            suggested_double = [f"{den}{den}", f"{rong_list[0]}{rong_list[0]}"]
-            
-            st.markdown("---")
-            st.write(f"• **ชุด 2 ตัวเน้นๆ (ไป-กลับ) :** {', '.join(suggested_2d)}")
-            st.write(f"• **ชุด 3 ตัวบนแนะนำ        :** {', '.join(suggested_3d)}")
-            st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ)    :** {', '.join(suggested_double)}")
+                sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
+                den = sorted_digits[0]
+                rong_list = sorted_digits[1:4]
+                gun_list = sorted_digits[4:7]
+                
+                st.success(f"🎯 **สรุปแนวทางเลขเด่นทำนายงวดถัดไป ({day_selected})**")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("เด่น", den, f"{digit_scores[den]:.1f} แต้ม")
+                col2.metric("รอง", " - ".join(rong_list))
+                col3.metric("กัน", " - ".join(gun_list))
+                
+                suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list]
+                suggested_3d = [f"{den}{rong_list[0]}{rong_list[1]}"]
+                suggested_double = [f"{den}{den}", f"{rong_list[0]}{rong_list[0]}"]
+                
+                st.markdown("---")
+                st.write(f"• **ชุด 2 ตัวเน้นๆ (ไป-กลับ) :** {', '.join(suggested_2d)}")
+                st.write(f"• **ชุด 3 ตัวบนแนะนำ        :** {', '.join(suggested_3d)}")
+                st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ)    :** {', '.join(suggested_double)}")
     else:
-        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab} กรุณาอัปเพิ่มในเมนูที่ 1 ก่อน")
+        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab} หรือไฟล์ว่างเปล่า กรุณาอัปเพิ่มในเมนูที่ 1 ก่อน")
