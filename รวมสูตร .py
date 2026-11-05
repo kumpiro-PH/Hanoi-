@@ -35,16 +35,19 @@ def parse_thai_date(x):
         if len(parts) != 3:
             return pd.NaT
         day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
+        
+        # รองรับการแปลง พ.ศ. (เช่น 2569 -> 2026) และ ค.ศ. (2026)
         if year > 2400:
             year -= 543
         elif year < 100:
             year += 2000
+            
         return pd.Timestamp(year=year, month=month, day=day)
     except Exception:
         return pd.NaT
 
 def get_csv_file_for_date(date_str):
-    """ตรวจสอบวันที่และคืนค่าชื่อไฟล์ CSV ประจำวันนั้นๆ"""
+    """ตรวจสอบวันที่และคืนค่าชื่อไฟล์ CSV ประจำวันนั้นๆ พร้อมชื่อวันภาษาอังกฤษ"""
     dt = parse_thai_date(date_str)
     if pd.notna(dt):
         weekday_en = dt.day_name()
@@ -53,49 +56,51 @@ def get_csv_file_for_date(date_str):
 
 def initialize_csvs():
     """ตรวจสอบและสร้างไฟล์ CSV เริ่มต้นหากยังไม่มี"""
+    headers = "date,special,first_prize,top_3,bottom_2\n"
     if not os.path.exists("history_hanoi.csv"):
         with open("history_hanoi.csv", "w", encoding="utf-8") as f:
-            f.write("date,special,first_prize,top_3,bottom_2\n")
+            f.write(headers)
             
     for day_en, filename in DAY_CSV_MAP.items():
         if not os.path.exists(filename):
             with open(filename, "w", encoding="utf-8") as f:
-                f.write("date,special,first_prize,top_3,bottom_2\n")
+                f.write(headers)
 
 def load_and_clean_df(filepath):
     """ฟังก์ชันช่วยโหลด CSV และปรับแก้ชื่อคอลัมน์ให้เป็นมาตรฐานเดียวกัน"""
+    expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
     try:
         if not os.path.exists(filepath):
-            return pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
+            return pd.DataFrame(columns=expected_cols)
         
-        df = pd.read_csv(filepath)
+        df = pd.read_csv(filepath, dtype=str)
+        if df.empty:
+            return pd.DataFrame(columns=expected_cols)
+            
         df.columns = df.columns.str.strip()
         
-        # แม็ปชื่อคอลัมน์ภาษาไทย / ชื่อชุดใหม่ ให้ตรงกับโครงสร้างระบบ
         column_mapping = {
             "วันที่": "date",
             "รางวัลที่ 1": "special",
             "รางวัลที่ 2": "first_prize",
-            "prize_5digit_1": "special",      # รองรับ CSV คอลัมน์ใหม่
-            "prize_5digit_2": "first_prize",  # รองรับ CSV คอลัมน์ใหม่
+            "prize_5digit_1": "special",
+            "prize_5digit_2": "first_prize",
             "3 ตัวบน": "top_3",
             "3ตัวบน": "top_3",
-            "three_digit": "top_3",           # รองรับ CSV คอลัมน์ใหม่
+            "three_digit": "top_3",
             "2 ตัวล่าง": "bottom_2",
             "2ตัวล่าง": "bottom_2",
-            "two_digit": "bottom_2"           # รองรับ CSV คอลัมน์ใหม่
+            "two_digit": "bottom_2"
         }
         df = df.rename(columns=column_mapping)
         
-        # ตรวจสอบว่ามีคอลัมน์หลักครบไหม ถ้าไม่มีให้ใส่ค่าว่าง "-" แทน None
-        expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = "-"
                 
-        return df[expected_cols]
+        return df[expected_cols].fillna("-")
     except Exception:
-        return pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
+        return pd.DataFrame(columns=expected_cols)
 
 def get_transformations(top_3_str, bottom_2_str="00"):
     """แปลงเลขฐานและสูตรคำนวณทั้งหมด"""
@@ -105,8 +110,8 @@ def get_transformations(top_3_str, bottom_2_str="00"):
     except Exception:
         clean_t3, clean_b2 = "000", "00"
 
-    digits_t3 = [int(c) for c in clean_t3[-3:]]
-    digits_b2 = [int(c) for c in clean_b2[-2:]]
+    digits_t3 = [int(c) if c.isdigit() else 0 for c in clean_t3[-3:]]
+    digits_b2 = [int(c) if c.isdigit() else 0 for c in clean_b2[-2:]]
     
     carry_over = set(digits_t3 + digits_b2)
 
@@ -166,7 +171,7 @@ menu = st.sidebar.selectbox(
     ]
 )
 
-# เลือกดูข้อมูลตามวัน (สำหรับเมนูประวัติหรือทำนาย)
+# เลือกดูข้อมูลตามวัน
 selected_day_tab = st.sidebar.selectbox(
     "เลือกวันประจำไฟล์ข้อมูล",
     ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -199,24 +204,24 @@ if menu == "1. อัปเดตผลรางวัล":
                     st.warning(f"⚠️ มีข้อมูลของวันที่ {date_str} ในไฟล์ของวัน ({target_day}) อยู่แล้ว")
                 else:
                     new_row = pd.DataFrame([{
-                        "date": date_str,
-                        "special": special,
-                        "first_prize": first_prize,
-                        "top_3": top_3,
-                        "bottom_2": bottom_2,
+                        "date": date_str.strip(),
+                        "special": special.strip() if special else "-",
+                        "first_prize": first_prize.strip() if first_prize else "-",
+                        "top_3": top_3.strip(),
+                        "bottom_2": bottom_2.strip(),
                     }])
                     
                     # บันทึกลงไฟล์รายวัน
                     updated_day_df = pd.concat([new_row, target_df], ignore_index=True)
                     updated_day_df.to_csv(target_csv, index=False)
                     
-                    # บันทึกลงไฟล์หลักรวม (history_hanoi.csv)
+                    # บันทึกลงไฟล์รวมหลัก (history_hanoi.csv)
                     updated_all_df = pd.concat([new_row, df_all_history], ignore_index=True)
                     updated_all_df.to_csv("history_hanoi.csv", index=False)
                     
                     st.success(f"✅ บันทึกผลรางวัลลงไฟล์ **{target_day}** ({target_csv}) และไฟล์รวมหลัก สำเร็จเรียบร้อยแล้ว!")
             else:
-                st.warning("⚠️ กรุณากรอกข้อมูลวันที่ 3 ตัวบน และ 2 ตัวล่างให้ครบถ้วน")
+                st.warning("⚠️ กรุณากรอกข้อมูลวันที่, 3 ตัวบน และ 2 ตัวล่างให้ครบถ้วน")
 
 # เมนูที่ 2: แสดงประวัติทั้งหมด
 elif menu == "2. แสดงประวัติ (History)":
@@ -227,7 +232,7 @@ elif menu == "2. แสดงประวัติ (History)":
     else:
         st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab}")
 
-# เมนูที่ 3: ลบข้อมืองวดล่าสุด (เพิ่มระบบซิงค์ไฟล์รวม)
+# เมนูที่ 3: ลบข้อมืองวดล่าสุด
 elif menu == "3. ลบข้อมืองวดล่าสุด":
     st.header(f"🗑️ ลบข้อมูลผลรางวัล (งวดล่าสุด - {selected_day_tab})")
     st.write(f"📁 จากไฟล์รายวัน: `{active_csv_file}` และซิงค์กับ `history_hanoi.csv`")
@@ -241,11 +246,11 @@ elif menu == "3. ลบข้อมืองวดล่าสุด":
         
         if st.button("ยืนยันการลบงวดล่าสุด"):
             if len(df_main) > 0:
-                # 1. ลบจากไฟล์รายวัน
+                # 1. ลบออกจากไฟล์ประจำวัน
                 df_main = df_main.iloc[1:].reset_index(drop=True)
                 df_main.to_csv(active_csv_file, index=False)
                 
-                # 2. ซิงค์ลบออกจากไฟล์รวมหลัก (history_hanoi.csv) โดยอ้างอิงจากวันที่ตรงกัน
+                # 2. ซิงค์ลบออกจากไฟล์รวมหลัก (history_hanoi.csv)
                 if not df_all_history.empty and 'date' in df_all_history.columns:
                     df_all_history = df_all_history[df_all_history['date'] != target_date_to_remove].reset_index(drop=True)
                     df_all_history.to_csv("history_hanoi.csv", index=False)
@@ -323,7 +328,7 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
                     
                     st.table(pd.DataFrame(result_data))
 
-# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไปแบบผสาน 3 ส่วน)
+# เมนูที่ 5: Forward Prediction
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header("🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล)")
     
@@ -380,7 +385,7 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             suggested_double = [f"{den}{den}", f"{rong_list[0]}{rong_list[0]}"]
 
             st.write(f"• **ชุด 2 ตัวเน้นๆ (ไป-กลับ) :** {', '.join(suggested_2d)}")
-            st.write(f"• **ชุด 3 ตัวบนแนะนำ        :** {', '.join(suggested_3d)}")
-            st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ)    :** {', '.join(suggested_double)}")
+            st.write(f"• **ชุด 3 ตัวบนแนะนำ :** {', '.join(suggested_3d)}")
+            st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ) :** {', '.join(suggested_double)}")
     else:
         st.warning(f"⚠️ กรุณาตรวจสอบว่ามีข้อมูลในไฟล์ `history_hanoi.csv` และ `{active_csv_file}` เรียบร้อยแล้ว")
