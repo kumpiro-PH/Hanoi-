@@ -135,9 +135,17 @@ selected_day_tab = st.sidebar.selectbox(
 )
 active_csv_file = DAY_CSV_MAP[selected_day_tab]
 
-# โหลดข้อมูล CSV ตามวันที่เลือกใน Sidebar
+# โหลดข้อมูล CSV ตามวันที่เลือกใน Sidebar พร้อมรองรับหัวคอลัมน์ภาษาไทยจาก GitHub
 try:
     df_main = pd.read_csv(active_csv_file)
+    column_mapping = {
+        "วันที่": "date",
+        "รางวัลที่ 1": "special",
+        "รางวัลที่ 2": "first_prize",
+        "3 ตัวบน": "top_3",
+        "2 ตัวล่าง": "bottom_2"
+    }
+    df_main = df_main.rename(columns=column_mapping)
 except Exception:
     df_main = pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
 
@@ -157,14 +165,16 @@ if menu == "1. อัปเดตผลรางวัล":
             if date_str and top_3 and bottom_2:
                 target_csv, target_day = get_csv_file_for_date(date_str)
                 
-                # โหลดข้อมูลของไฟล์ปลายทางที่จะบันทึก
                 try:
                     target_df = pd.read_csv(target_csv)
+                    target_df = target_df.rename(columns={
+                        "วันที่": "date", "รางวัลที่ 1": "special", 
+                        "รางวัลที่ 2": "first_prize", "3 ตัวบน": "top_3", "2 ตัวล่าง": "bottom_2"
+                    })
                 except Exception:
                     target_df = pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
                 
-                # ตรวจสอบว่ามีวันที่นี้อยู่แล้วหรือยัง
-                if not target_df.empty and date_str in target_df['date'].values:
+                if not target_df.empty and 'date' in target_df.columns and date_str in target_df['date'].values:
                     st.warning(f"⚠️ มีข้อมูลของวันที่ {date_str} ในไฟล์ของวัน ({target_day}) อยู่แล้ว")
                 else:
                     new_row = pd.DataFrame([{
@@ -193,7 +203,7 @@ elif menu == "2. แสดงประวัติ (History)":
 elif menu == "3. ลบข้อมืองวดล่าสุด":
     st.header(f"🗑️ ลบข้อมูลผลรางวัล (งวดล่าสุด - {selected_day_tab})")
     st.write(f"📁 จากไฟล์: `{active_csv_file}`")
-    if not df_main.empty:
+    if not df_main.empty and 'date' in df_main.columns:
         st.write("ข้อมืองวดล่าสุดด้านบนสุดที่จะถูกลบ:")
         st.dataframe(df_main.head(1), use_container_width=True)
         
@@ -213,7 +223,7 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
     
     if st.button("เริ่มคำนวณสถิติย้อนหลัง"):
         with st.spinner("กำลังประมวลผล Backtest..."):
-            if df_main.empty:
+            if df_main.empty or 'date' not in df_main.columns:
                 st.warning("⚠️ ข้อมูลไม่เพียงพอสำหรับการคำนวณย้อนหลังในไฟล์นี้")
             else:
                 df = df_main.copy()
@@ -241,10 +251,10 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
                     for i in range(1, len(df)):
                         prev = df.iloc[i - 1]
                         row = df.iloc[i]
-                        t3 = str(row["top_3"]).zfill(3)
-                        b2 = str(row["bottom_2"]).zfill(2)
-                        base_t3 = str(prev["top_3"]).zfill(3)
-                        base_b2 = str(prev["bottom_2"]).zfill(2)
+                        t3 = str(row.get("top_3", "000")).zfill(3)
+                        b2 = str(row.get("bottom_2", "00")).zfill(2)
+                        base_t3 = str(prev.get("top_3", "000")).zfill(3)
+                        base_b2 = str(prev.get("bottom_2", "00")).zfill(2)
                         daily_6 = DAILY_NUMBERS.get(row["weekday_en"], "000000")
 
                         trans = get_transformations(base_t3, base_b2)
@@ -279,13 +289,10 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header("🔮 Forward Prediction (ทำนายแนวทางงวดถัดไป)")
     st.write(f"📁 อ้างอิงข้อมืองวดล่าสุดจากไฟล์: `{active_csv_file}` ({selected_day_tab})")
     
-    # ตรวจสอบว่า df_main ไม่ว่างและมีคอลัมน์ 'date' อยู่จริง
     if not df_main.empty and 'date' in df_main.columns:
         latest = df_main.iloc[0]
-        
-        # ป้องกันกรณีที่ไฟล์ CSV มีหัวตารางแต่ไม่มีข้อมูลแถว (Row) ด้านใน
         if pd.isna(latest['date']) or str(latest['date']).strip() == "":
-            st.warning(f"⚠️ ไฟล์ `{active_csv_file}` มีหัวตารางแล้ว แต่ยังไม่มีข้อมูลผลรางวัล กรุณาไปเพิ่มข้อมูลในเมนูที่ 1 ก่อน")
+            st.warning(f"⚠️ ไฟล์ `{active_csv_file}` ยังไม่มีข้อมูลผลรางวัล กรุณาไปเพิ่มข้อมูลในเมนูที่ 1 ก่อน")
         else:
             latest_dt = parse_thai_date(latest['date'])
             
