@@ -213,19 +213,30 @@ elif menu == "2. แสดงประวัติ (History)":
     else:
         st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab}")
 
-# เมนูที่ 3: ลบข้อมืองวดล่าสุด
+# เมนูที่ 3: ลบข้อมืองวดล่าสุด (เพิ่มระบบซิงค์ไฟล์รวม)
 elif menu == "3. ลบข้อมืองวดล่าสุด":
     st.header(f"🗑️ ลบข้อมูลผลรางวัล (งวดล่าสุด - {selected_day_tab})")
-    st.write(f"📁 จากไฟล์: `{active_csv_file}`")
+    st.write(f"📁 จากไฟล์รายวัน: `{active_csv_file}` และซิงค์กับ `history_hanoi.csv`")
+    
     if not df_main.empty and 'date' in df_main.columns:
+        latest_row = df_main.head(1)
+        target_date_to_remove = latest_row['date'].values[0]
+        
         st.write("ข้อมืองวดล่าสุดด้านบนสุดที่จะถูกลบ:")
-        st.dataframe(df_main.head(1), use_container_width=True)
+        st.dataframe(latest_row, use_container_width=True)
         
         if st.button("ยืนยันการลบงวดล่าสุด"):
             if len(df_main) > 0:
+                # 1. ลบจากไฟล์รายวัน
                 df_main = df_main.iloc[1:].reset_index(drop=True)
                 df_main.to_csv(active_csv_file, index=False)
-                st.success("✅ ลบงวดล่าสุดเรียบร้อยแล้ว")
+                
+                # 2. ซิงค์ลบออกจากไฟล์รวมหลัก (history_hanoi.csv) โดยอ้างอิงจากวันที่ตรงกัน
+                if not df_all_history.empty and 'date' in df_all_history.columns:
+                    df_all_history = df_all_history[df_all_history['date'] != target_date_to_remove].reset_index(drop=True)
+                    df_all_history.to_csv("history_hanoi.csv", index=False)
+                
+                st.success("✅ ลบงวดล่าสุดเรียบร้อยแล้ว และอัปเดตข้อมูลทั้งไฟล์รายวันและไฟล์รวมเรียบร้อย!")
                 st.rerun()
     else:
         st.info("ไม่มีข้อมูลให้ลบในไฟล์นี้")
@@ -302,7 +313,6 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header("🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล)")
     
-    # ดึงข้อมูลงวดล่าสุดจากไฟล์รวมหลัก และไฟล์ประจำวัน
     if not df_all_history.empty and not df_main.empty:
         latest_all = df_all_history.iloc[0]
         latest_day = df_main.iloc[0]
@@ -321,30 +331,24 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             if selected_day_tab == "Saturday":
                 st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออก 'เลขเบิ้ล' และ 'เลขหาม' สูงมาก แนะนำให้ติดชุดกันไว้เสมอ!")
 
-            # 1. แปลงสูตรจากงวดรวมล่าสุด
             trans_all = get_transformations(str(latest_all.get('top_3', '000')), str(latest_all.get('bottom_2', '00')))
-            # 2. แปลงสูตรจากงวดประจำวันล่าสุด
             trans_day = get_transformations(str(latest_day.get('top_3', '000')), str(latest_day.get('bottom_2', '00')))
 
             digit_scores = {str(i): 0.0 for i in range(10)}
 
-            # --- น้ำหนักส่วนที่ 1: ชุดเลขประจำวัน (+2.0 แต้ม) ---
             for d in daily_6: 
                 digit_scores[d] += 2.0
 
-            # --- น้ำหนักส่วนที่ 2: จากงวดรวมล่าสุด (+1.5 แต้ม) ---
             for d in trans_all['carry_over']: digit_scores[str(d)] += 1.5
             for d in trans_all['pm1']: digit_scores[str(d)] += 1.2
             for d in trans_all['sum_formulas']: digit_scores[d] += 1.2
             for d in trans_all['cross_formulas']: digit_scores[str(d)] += 1.0
 
-            # --- น้ำหนักส่วนที่ 3: จากงวดประจำวันล่าสุด (+1.5 แต้ม) ---
             for d in trans_day['carry_over']: digit_scores[str(d)] += 1.5
             for d in trans_day['pm1']: digit_scores[str(d)] += 1.2
             for d in trans_day['sum_formulas']: digit_scores[d] += 1.2
             for d in trans_day['cross_formulas']: digit_scores[str(d)] += 1.0
 
-            # จัดเรียงคะแนนตัวเลข
             sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
             den = sorted_digits[0]
             rong_list = sorted_digits[1:4]
