@@ -67,7 +67,7 @@ def initialize_csvs():
                 f.write(headers)
 
 def load_and_clean_df(filepath):
-    """ฟังก์ชันช่วยโหลด CSV และปรับแก้ชื่อคอลัมน์ให้เป็นมาตรฐานเดียวกัน"""
+    """ฟังก์ชันช่วยโหลด CSV และปรับแก้ชื่อคอลัมน์ภาษาไทย/อังกฤษให้เป็นมาตรฐานเดียวกัน"""
     expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
     try:
         if not os.path.exists(filepath):
@@ -79,10 +79,13 @@ def load_and_clean_df(filepath):
             
         df.columns = df.columns.str.strip()
         
+        # แม็ปชื่อคอลัมน์ภาษาไทย (รองรับแบบติดกันและมีเว้นวรรค) และชื่ออังกฤษ
         column_mapping = {
             "วันที่": "date",
             "รางวัลที่ 1": "special",
+            "รางวัลที่1": "special",        # รองรับภาษาไทยติดกัน
             "รางวัลที่ 2": "first_prize",
+            "รางวัลที่2": "first_prize",      # รองรับภาษาไทยติดกัน
             "prize_5digit_1": "special",
             "prize_5digit_2": "first_prize",
             "3 ตัวบน": "top_3",
