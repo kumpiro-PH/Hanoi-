@@ -1,4 +1,4 @@
-# app.py - Hanoi AI Professional (All-in-One Streamlit App)
+# app.py - Hanoi AI Professional (All-in-One Streamlit App - Multi-CSV by Day)
 import os
 import streamlit as st
 import pandas as pd
@@ -6,8 +6,16 @@ import pandas as pd
 # ==================== ตั้งค่าหน้าเว็บ ====================
 st.set_page_config(page_title="Hanoi AI Professional", page_icon="🎯", layout="wide")
 
-# ==================== ชื่อไฟล์ฐานข้อมูลหลัก ====================
-CSV_FILE = "history_hanoi.csv"
+# ==================== กำหนดชื่อไฟล์ CSV ตามวันในสัปดาห์ ====================
+DAY_CSV_MAP = {
+    "Monday": "history_hanoi_mon.csv",
+    "Tuesday": "history_hanoi_tue.csv",
+    "Wednesday": "history_hanoi_wed.csv",
+    "Thursday": "history_hanoi_thu.csv",
+    "Friday": "history_hanoi_fri.csv",
+    "Saturday": "history_hanoi_sat.csv",
+    "Sunday": "history_hanoi_sun.csv",
+}
 
 # ==================== ชุดเลขประจำวัน 6 ตัวตามสถิติ ====================
 DAILY_NUMBERS = {
@@ -35,15 +43,21 @@ def parse_thai_date(x):
     except Exception:
         return pd.NaT
 
-def initialize_csv():
-    """ตรวจสอบไฟล์ CSV หากยังไม่มีให้สร้างโครงสร้างเริ่มต้น"""
-    if not os.path.exists(CSV_FILE):
-        initial_data = """date,special,first_prize,top_3,bottom_2
-30/09/2569,95242,82585,242,85
-29/09/2569,05651,08389,651,89
-28/09/2569,77115,86908,115,08"""
-        with open(CSV_FILE, "w", encoding="utf-8") as f:
-            f.write(initial_data)
+def get_csv_file_for_date(date_str):
+    """ตรวจสอบวันที่และคืนค่าชื่อไฟล์ CSV ประจำวันนั้นๆ"""
+    dt = parse_thai_date(date_str)
+    if pd.notna(dt):
+        weekday_en = dt.day_name()
+        return DAY_CSV_MAP.get(weekday_en, "history_hanoi.csv"), weekday_en
+    return "history_hanoi.csv", "Monday"
+
+def initialize_csvs():
+    """ตรวจสอบและสร้างไฟล์ CSV ประจำวันเริ่มต้นหากยังไม่มี"""
+    for day_en, filename in DAY_CSV_MAP.items():
+        if not os.path.exists(filename):
+            initial_data = "date,special,first_prize,top_3,bottom_2\n"
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(initial_data)
 
 def get_transformations(top_3_str, bottom_2_str="00"):
     """แปลงเลขฐานและสูตรคำนวณทั้งหมด"""
@@ -97,10 +111,10 @@ def get_transformations(top_3_str, bottom_2_str="00"):
 
 # ==================== ส่วนแสดงผลหน้าเว็บ Streamlit ====================
 
-initialize_csv()
+initialize_csvs()
 
-st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย")
-st.write("ระบบวิเคราะห์สถิติและทำนายแนวทางหวยฮานอยด้วย Python และ Streamlit")
+st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (แยกไฟล์รายวัน)")
+st.write("ระบบวิเคราะห์สถิติและทำนายแนวทางหวยฮานอย จัดเก็บข้อมูลแยกตามวันในสัปดาห์อัตโนมัติ")
 
 # เมนูด้านข้าง (Sidebar)
 menu = st.sidebar.selectbox(
@@ -114,9 +128,16 @@ menu = st.sidebar.selectbox(
     ]
 )
 
-# โหลดข้อมูล CSV
+# เลือกดูข้อมูลตามวัน (สำหรับเมนูประวัติหรือทำนาย)
+selected_day_tab = st.sidebar.selectbox(
+    "เลือกวันประจำไฟล์ข้อมูล",
+    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+)
+active_csv_file = DAY_CSV_MAP[selected_day_tab]
+
+# โหลดข้อมูล CSV ตามวันที่เลือกใน Sidebar
 try:
-    df_main = pd.read_csv(CSV_FILE)
+    df_main = pd.read_csv(active_csv_file)
 except Exception:
     df_main = pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
 
@@ -134,9 +155,17 @@ if menu == "1. อัปเดตผลรางวัล":
         submitted = st.form_submit_button("บันทึกผลรางวัล")
         if submitted:
             if date_str and top_3 and bottom_2:
-                # ตรวจสอบว่ามีวันที่นี้อยู่ในระบบแล้วหรือยัง
-                if not df_main.empty and date_str in df_main['date'].values:
-                    st.warning(f"⚠️ มีข้อมูลของวันที่ {date_str} ในระบบอยู่แล้ว กรุณาตรวจสอบอีกครั้ง")
+                target_csv, target_day = get_csv_file_for_date(date_str)
+                
+                # โหลดข้อมูลของไฟล์ปลายทางที่จะบันทึก
+                try:
+                    target_df = pd.read_csv(target_csv)
+                except Exception:
+                    target_df = pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
+                
+                # ตรวจสอบว่ามีวันที่นี้อยู่แล้วหรือยัง
+                if not target_df.empty and date_str in target_df['date'].values:
+                    st.warning(f"⚠️ มีข้อมูลของวันที่ {date_str} ในไฟล์ของวัน ({target_day}) อยู่แล้ว")
                 else:
                     new_row = pd.DataFrame([{
                         "date": date_str,
@@ -145,23 +174,25 @@ if menu == "1. อัปเดตผลรางวัล":
                         "top_3": top_3,
                         "bottom_2": bottom_2,
                     }])
-                    updated_df = pd.concat([new_row, df_main], ignore_index=True)
-                    updated_df.to_csv(CSV_FILE, index=False)
-                    st.success("✅ บันทึกผลรางวัลใหม่สำเร็จเรียบร้อยแล้ว!")
+                    updated_df = pd.concat([new_row, target_df], ignore_index=True)
+                    updated_df.to_csv(target_csv, index=False)
+                    st.success(f"✅ บันทึกผลรางวัลลงในไฟล์ประจำวัน **{target_day}** ({target_csv}) สำเร็จเรียบร้อยแล้ว!")
             else:
                 st.warning("⚠️ กรุณากรอกข้อมูลวันที่ 3 ตัวบน และ 2 ตัวล่างให้ครบถ้วน")
 
 # เมนูที่ 2: แสดงประวัติทั้งหมด
 elif menu == "2. แสดงประวัติ (History)":
-    st.header("📊 ประวัติผลรางวัลหวยฮานอยย้อนหลังทั้งหมด")
+    st.header(f"📊 ประวัติผลรางวัลหวยฮานอยย้อนหลัง ({selected_day_tab})")
+    st.write(f"📁 กำลังแสดงข้อมูลจากไฟล์: `{active_csv_file}`")
     if not df_main.empty:
         st.dataframe(df_main, use_container_width=True)
     else:
-        st.info("ยังไม่มีข้อมูลในระบบ")
+        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab}")
 
 # เมนูที่ 3: ลบข้อมืองวดล่าสุด
 elif menu == "3. ลบข้อมืองวดล่าสุด":
-    st.header("🗑️ ลบข้อมูลผลรางวัล (งวดล่าสุด)")
+    st.header(f"🗑️ ลบข้อมูลผลรางวัล (งวดล่าสุด - {selected_day_tab})")
+    st.write(f"📁 จากไฟล์: `{active_csv_file}`")
     if not df_main.empty:
         st.write("ข้อมืองวดล่าสุดด้านบนสุดที่จะถูกลบ:")
         st.dataframe(df_main.head(1), use_container_width=True)
@@ -169,89 +200,101 @@ elif menu == "3. ลบข้อมืองวดล่าสุด":
         if st.button("ยืนยันการลบงวดล่าสุด"):
             if len(df_main) > 0:
                 df_main = df_main.iloc[1:].reset_index(drop=True)
-                df_main.to_csv(CSV_FILE, index=False)
+                df_main.to_csv(active_csv_file, index=False)
                 st.success("✅ ลบงวดล่าสุดเรียบร้อยแล้ว")
                 st.rerun()
     else:
-        st.info("ไม่มีข้อมูลให้ลบ")
+        st.info("ไม่มีข้อมูลให้ลบในไฟล์นี้")
 
 # เมนูที่ 4: จัดอันดับสูตร
 elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
-    st.header("🏆 จัดอันดับความแม่นยำของสูตร (Formula Ranking)")
+    st.header(f"🏆 จัดอันดับความแม่นยำของสูตร ({selected_day_tab})")
+    st.write(f"📁 วิเคราะห์จากไฟล์: `{active_csv_file}`")
     
     if st.button("เริ่มคำนวณสถิติย้อนหลัง"):
         with st.spinner("กำลังประมวลผล Backtest..."):
-            df = pd.read_csv(CSV_FILE)
-            df["dt"] = df["date"].apply(parse_thai_date)
-            df = df.dropna(subset=["dt"]).sort_values(by="dt", ascending=True).reset_index(drop=True)
-            df["weekday_en"] = df["dt"].dt.day_name()
-            
-            total = len(df) - 1
-            if total <= 0:
-                st.warning("⚠️ ข้อมูลไม่เพียงพอสำหรับการคำนวณย้อนหลัง")
+            if df_main.empty:
+                st.warning("⚠️ ข้อมูลไม่เพียงพอสำหรับการคำนวณย้อนหลังในไฟล์นี้")
             else:
-                scores = {
-                    "Carry Over (ดึงเลขเก่า)": 0,
-                    "±1 (วิ่ง/รูด)": 0,
-                    "Sum Modulo (ผลรวม)": 0,
-                    "Cross Sum (สูตรไขว้)": 0,
-                    "Daily 6-Digit": 0,
-                    "Rotation (โต๊ด)": 0,
-                    "Mirror (กระจก)": 0,
-                    "Shift (+2)": 0,
-                    "Double (เบิ้ล)": 0,
-                    "Sandwich (หาม)": 0,
-                }
-
-                for i in range(1, len(df)):
-                    prev = df.iloc[i - 1]
-                    row = df.iloc[i]
-                    t3 = str(row["top_3"]).zfill(3)
-                    b2 = str(row["bottom_2"]).zfill(2)
-                    base_t3 = str(prev["top_3"]).zfill(3)
-                    base_b2 = str(prev["bottom_2"]).zfill(2)
-                    daily_6 = DAILY_NUMBERS.get(row["weekday_en"], "000000")
-
-                    trans = get_transformations(base_t3, base_b2)
-
-                    if any(str(d) in t3 or str(d) in b2 for d in trans["carry_over"]): scores["Carry Over (ดึงเลขเก่า)"] += 1
-                    if any(str(d) in t3 or str(d) in b2 for d in trans["pm1"]): scores["±1 (วิ่ง/รูด)"] += 1
-                    if any(str(d) in t3 or str(d) in b2 for d in trans["sum_formulas"]): scores["Sum Modulo (ผลรวม)"] += 1
-                    if any(str(d) in t3 or str(d) in b2 for d in trans["cross_formulas"]): scores["Cross Sum (สูตรไขว้)"] += 1
-                    if any(c in t3 or c in b2 for c in daily_6): scores["Daily 6-Digit"] += 1
-                    if any(rot in t3 for rot in trans["rotations"]) or any(any(c in b2 for c in rot) for rot in trans["rotations"]): scores["Rotation (โต๊ด)"] += 1
-                    if any(c in t3 or c in b2 for c in trans["mirror"]): scores["Mirror (กระจก)"] += 1
-                    if any(c in t3 or c in b2 for c in trans["shifted"]): scores["Shift (+2)"] += 1
-                    if any(dbl in t3 or dbl in b2 for dbl in trans["doubles"]): scores["Double (เบิ้ล)"] += 1
-                    if any(snd in t3 for snd in trans["sandwiches"]): scores["Sandwich (หาม)"] += 1
-
-                ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+                df = df_main.copy()
+                df["dt"] = df["date"].apply(parse_thai_date)
+                df = df.dropna(subset=["dt"]).sort_values(by="dt", ascending=True).reset_index(drop=True)
+                df["weekday_en"] = df["dt"].dt.day_name()
                 
-                result_data = []
-                for rank, (formula, score) in enumerate(ranked, 1):
-                    percentage = (score / total) * 100
-                    result_data.append({
-                        "อันดับ": rank,
-                        "ชื่อสูตร": formula,
-                        "คะแนนที่ถูก": f"{score}/{total}",
-                        "ความแม่นยำ (%)": f"{percentage:.1f}%"
-                    })
-                
-                st.table(pd.DataFrame(result_data))
+                total = len(df) - 1
+                if total <= 0:
+                    st.warning("⚠️ ต้องการข้อมูลมากกว่า 1 งวดขึ้นไปสำหรับการคำนวณย้อนหลัง")
+                else:
+                    scores = {
+                        "Carry Over (ดึงเลขเก่า)": 0,
+                        "±1 (วิ่ง/รูด)": 0,
+                        "Sum Modulo (ผลรวม)": 0,
+                        "Cross Sum (สูตรไขว้)": 0,
+                        "Daily 6-Digit": 0,
+                        "Rotation (โต๊ด)": 0,
+                        "Mirror (กระจก)": 0,
+                        "Shift (+2)": 0,
+                        "Double (เบิ้ล)": 0,
+                        "Sandwich (หาม)": 0,
+                    }
+
+                    for i in range(1, len(df)):
+                        prev = df.iloc[i - 1]
+                        row = df.iloc[i]
+                        t3 = str(row["top_3"]).zfill(3)
+                        b2 = str(row["bottom_2"]).zfill(2)
+                        base_t3 = str(prev["top_3"]).zfill(3)
+                        base_b2 = str(prev["bottom_2"]).zfill(2)
+                        daily_6 = DAILY_NUMBERS.get(row["weekday_en"], "000000")
+
+                        trans = get_transformations(base_t3, base_b2)
+
+                        if any(str(d) in t3 or str(d) in b2 for d in trans["carry_over"]): scores["Carry Over (ดึงเลขเก่า)"] += 1
+                        if any(str(d) in t3 or str(d) in b2 for d in trans["pm1"]): scores["±1 (วิ่ง/รูด)"] += 1
+                        if any(str(d) in t3 or str(d) in b2 for d in trans["sum_formulas"]): scores["Sum Modulo (ผลรวม)"] += 1
+                        if any(str(d) in t3 or str(d) in b2 for d in trans["cross_formulas"]): scores["Cross Sum (สูตรไขว้)"] += 1
+                        if any(c in t3 or c in b2 for c in daily_6): scores["Daily 6-Digit"] += 1
+                        if any(rot in t3 for rot in trans["rotations"]) or any(any(c in b2 for c in rot) for rot in trans["rotations"]): scores["Rotation (โต๊ด)"] += 1
+                        if any(c in t3 or c in b2 for c in trans["mirror"]): scores["Mirror (กระจก)"] += 1
+                        if any(c in t3 or c in b2 for c in trans["shifted"]): scores["Shift (+2)"] += 1
+                        if any(dbl in t3 or dbl in b2 for dbl in trans["doubles"]): scores["Double (เบิ้ล)"] += 1
+                        if any(snd in t3 for snd in trans["sandwiches"]): scores["Sandwich (หาม)"] += 1
+
+                    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+                    
+                    result_data = []
+                    for rank, (formula, score) in enumerate(ranked, 1):
+                        percentage = (score / total) * 100
+                        result_data.append({
+                            "อันดับ": rank,
+                            "ชื่อสูตร": formula,
+                            "คะแนนที่ถูก": f"{score}/{total}",
+                            "ความแม่นยำ (%)": f"{percentage:.1f}%"
+                        })
+                    
+                    st.table(pd.DataFrame(result_data))
 
 # เมนูที่ 5: ทำนายงวดถัดไป
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header("🔮 Forward Prediction (ทำนายแนวทางงวดถัดไป)")
+    st.write(f"📁 อ้างอิงข้อมืองวดล่าสุดจากไฟล์: `{active_csv_file}` ({selected_day_tab})")
     
     if not df_main.empty:
         latest = df_main.iloc[0]
+        latest_dt = parse_thai_date(latest['date'])
+        
         st.write(f"📅 ข้อมูลงวดล่าสุดวันที่: **{latest['date']}**")
         st.write(f"3 ตัวบน: `{latest['top_3']}` | 2 ตัวล่าง: `{latest['bottom_2']}`")
         
-        day_selected = st.selectbox(
-            "เลือกวันของงวดถัดไป",
-            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        )
+        if pd.notna(latest_dt):
+            next_dt = latest_dt + pd.Timedelta(days=1)
+            day_selected = next_dt.day_name()
+            st.info(f"📅 ระบบคำนวณวันของงวดถัดไปให้อัตโนมัติ: **{day_selected}** ({next_dt.strftime('%d/%m/%Y')})")
+        else:
+            day_selected = st.selectbox(
+                "เลือกวันของงวดถัดไป",
+                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            )
         
         if st.button("ประมวลผลทำนายเลข"):
             daily_6 = DAILY_NUMBERS.get(day_selected, "000000")
@@ -293,4 +336,4 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             st.write(f"• **ชุด 3 ตัวบนแนะนำ        :** {', '.join(suggested_3d)}")
             st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ)    :** {', '.join(suggested_double)}")
     else:
-        st.info("ยังไม่มีข้อมูลในระบบ กรุณาอัปเพิ่มในเมนูที่ 1 ก่อน")
+        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab} กรุณาอัปเพิ่มในเมนูที่ 1 ก่อน")
