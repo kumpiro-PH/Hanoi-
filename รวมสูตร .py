@@ -138,12 +138,15 @@ active_csv_file = DAY_CSV_MAP[selected_day_tab]
 # โหลดข้อมูล CSV ตามวันที่เลือกใน Sidebar พร้อมรองรับหัวคอลัมน์ภาษาไทยจาก GitHub
 try:
     df_main = pd.read_csv(active_csv_file)
+    df_main.columns = df_main.columns.str.strip()
     column_mapping = {
         "วันที่": "date",
         "รางวัลที่ 1": "special",
         "รางวัลที่ 2": "first_prize",
         "3 ตัวบน": "top_3",
-        "2 ตัวล่าง": "bottom_2"
+        "3ตัวบน": "top_3",
+        "2 ตัวล่าง": "bottom_2",
+        "2ตัวล่าง": "bottom_2"
     }
     df_main = df_main.rename(columns=column_mapping)
 except Exception:
@@ -167,9 +170,11 @@ if menu == "1. อัปเดตผลรางวัล":
                 
                 try:
                     target_df = pd.read_csv(target_csv)
+                    target_df.columns = target_df.columns.str.strip()
                     target_df = target_df.rename(columns={
                         "วันที่": "date", "รางวัลที่ 1": "special", 
-                        "รางวัลที่ 2": "first_prize", "3 ตัวบน": "top_3", "2 ตัวล่าง": "bottom_2"
+                        "รางวัลที่ 2": "first_prize", "3 ตัวบน": "top_3", "3ตัวบน": "top_3", 
+                        "2 ตัวล่าง": "bottom_2", "2ตัวล่าง": "bottom_2"
                     })
                 except Exception:
                     target_df = pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
