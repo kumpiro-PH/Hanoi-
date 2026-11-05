@@ -21,15 +21,17 @@ DAILY_NUMBERS = {
 }
 
 def parse_thai_date(x):
-    """ฟังก์ชันแปลงวันที่พุทธศักราช (DD/MM/YYYY) เป็น ค.ศ. แบบปลอดภัย"""
+    """ฟังก์ชันแปลงวันที่พุทธศักราช/ค.ศ. (DD/MM/YYYY) เป็น ค.ศ. แบบปลอดภัย"""
     try:
         parts = str(x).strip().split("/")
         if len(parts) != 3:
             return pd.NaT
         day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
-        if year < 100:
-            year += 2500
-        return pd.Timestamp(year=year - 543, month=month, day=day)
+        if year > 2400:
+            year -= 543
+        elif year < 100:
+            year += 2000
+        return pd.Timestamp(year=year, month=month, day=day)
     except Exception:
         return pd.NaT
 
@@ -132,16 +134,20 @@ if menu == "1. อัปเดตผลรางวัล":
         submitted = st.form_submit_button("บันทึกผลรางวัล")
         if submitted:
             if date_str and top_3 and bottom_2:
-                new_row = pd.DataFrame([{
-                    "date": date_str,
-                    "special": special,
-                    "first_prize": first_prize,
-                    "top_3": top_3,
-                    "bottom_2": bottom_2,
-                }])
-                updated_df = pd.concat([new_row, df_main], ignore_index=True)
-                updated_df.to_csv(CSV_FILE, index=False)
-                st.success("✅ บันทึกผลรางวัลใหม่สำเร็จเรียบร้อยแล้ว!")
+                # ตรวจสอบว่ามีวันที่นี้อยู่ในระบบแล้วหรือยัง
+                if not df_main.empty and date_str in df_main['date'].values:
+                    st.warning(f"⚠️ มีข้อมูลของวันที่ {date_str} ในระบบอยู่แล้ว กรุณาตรวจสอบอีกครั้ง")
+                else:
+                    new_row = pd.DataFrame([{
+                        "date": date_str,
+                        "special": special,
+                        "first_prize": first_prize,
+                        "top_3": top_3,
+                        "bottom_2": bottom_2,
+                    }])
+                    updated_df = pd.concat([new_row, df_main], ignore_index=True)
+                    updated_df.to_csv(CSV_FILE, index=False)
+                    st.success("✅ บันทึกผลรางวัลใหม่สำเร็จเรียบร้อยแล้ว!")
             else:
                 st.warning("⚠️ กรุณากรอกข้อมูลวันที่ 3 ตัวบน และ 2 ตัวล่างให้ครบถ้วน")
 
