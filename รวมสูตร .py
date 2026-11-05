@@ -63,7 +63,7 @@ def initialize_csvs():
                 f.write("date,special,first_prize,top_3,bottom_2\n")
 
 def load_and_clean_df(filepath):
-    """ฟังก์ชันช่วยโหลด CSV และปรับแก้ชื่อคอลัมน์ให้เป็นมาตรฐานเดียวกัน"""
+    """ฟังก์ชันช่วยโหลด CSV และปรับแก้ชื่อคอลัมน์ภาษาไทย/อังกฤษให้เป็นมาตรฐานเดียวกัน"""
     try:
         if not os.path.exists(filepath):
             return pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
@@ -71,27 +71,30 @@ def load_and_clean_df(filepath):
         df = pd.read_csv(filepath)
         df.columns = df.columns.str.strip()
         
-        # แม็ปชื่อคอลัมน์ทุกรูปแบบให้เข้าสู่โครงสร้างมาตรฐานเดียวกัน
+        # แม็ปชื่อคอลัมน์ทุกรูปแบบ (รองรับทั้งภาษาไทยแบบมี/ไม่มีเว้นวรรค และชื่อใหม่)
         column_mapping = {
             "วันที่": "date",
+            "date": "date",
             "รางวัลที่ 1": "special",
+            "รางวัลที่1": "special",        # รองรับภาษาไทยติดกันใน CSV ของคุณ
             "รางวัลที่ 2": "first_prize",
-            "prize_5digit_1": "special",      # รองรับชื่อคอลัมน์ใหม่
-            "prize_5digit_2": "first_prize",  # รองรับชื่อคอลัมน์ใหม่
+            "รางวัลที่2": "first_prize",      # รองรับภาษาไทยติดกันใน CSV ของคุณ
+            "prize_5digit_1": "special",
+            "prize_5digit_2": "first_prize",
             "3 ตัวบน": "top_3",
             "3ตัวบน": "top_3",
-            "three_digit": "top_3",           # รองรับชื่อคอลัมน์ใหม่
+            "three_digit": "top_3",
             "2 ตัวล่าง": "bottom_2",
             "2ตัวล่าง": "bottom_2",
-            "two_digit": "bottom_2"           # รองรับชื่อคอลัมน์ใหม่
+            "two_digit": "bottom_2"
         }
         df = df.rename(columns=column_mapping)
         
-        # ตรวจสอบว่ามีคอลัมน์หลักครบไหม ถ้าไม่มีให้สร้างเป็นค่าว่าง
+        # ตรวจสอบว่ามีคอลัมน์หลักครบไหม ถ้าไม่มีให้ใส่ค่าว่าง
         expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
         for col in expected_cols:
             if col not in df.columns:
-                df[col] = "None"
+                df[col] = "-"
                 
         return df[expected_cols]
     except Exception:
