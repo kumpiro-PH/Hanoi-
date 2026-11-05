@@ -19,13 +19,13 @@ DAY_CSV_MAP = {
 
 # ==================== ชุดเลขประจำวัน 6 ตัวตามสถิติ ====================
 DAILY_NUMBERS = {
-    "Monday": "940627",
-    "Tuesday": "017562",
-    "Wednesday": "394517",
-    "Thursday": "643951",
-    "Friday": "974516",
-    "Saturday": "820739",
-    "Sunday": "470076",
+    "Monday": "056787",
+    "Tuesday": "657872",
+    "Wednesday": "390768",
+    "Thursday": "897693",
+    "Friday": "305687",
+    "Saturday": "7890123",
+    "Sunday": "8901234",
 }
 
 def parse_thai_date(x):
