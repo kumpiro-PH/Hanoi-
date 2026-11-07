@@ -66,13 +66,15 @@ def load_and_clean_df(filepath):
             
         df.columns = df.columns.str.strip()
         
-        # Mapping ครอบคลุมทุกรูปแบบคอลัมน์ที่เป็นไปได้
+        # เพิ่มคอลัมน์จริงจากไฟล์ของคุณเข้ามาใน mapping ตรงนี้ครับ
         column_mapping = {
             "วันที่": "date",
             "date": "date",
+            "date_be": "date",         # <--- เพิ่มเข้ามา
             "รางวัลที่ 1": "special",
             "รางวัลที่1": "special",
             "special": "special",
+            "special_prize": "special", # <--- เพิ่มเข้ามา
             "prize_5digit_1": "special",
             "รางวัลที่ 2": "first_prize",
             "รางวัลที่2": "first_prize",
@@ -82,10 +84,12 @@ def load_and_clean_df(filepath):
             "3ตัวบน": "top_3",
             "three_digit": "top_3",
             "top_3": "top_3",
+            "top3": "top_3",           # <--- เพิ่มเข้ามา
             "2 ตัวล่าง": "bottom_2",
             "2ตัวล่าง": "bottom_2",
             "two_digit": "bottom_2",
-            "bottom_2": "bottom_2"
+            "bottom_2": "bottom_2",
+            "bottom2": "bottom_2"        # <--- เพิ่มเข้ามา
         }
         df = df.rename(columns=column_mapping)
         
