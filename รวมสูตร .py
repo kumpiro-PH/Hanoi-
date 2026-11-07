@@ -1,4 +1,4 @@
-# app.py - Hanoi AI Professional (3-Way Cross-Day Fusion Mode)
+# app.py - Hanoi AI Professional (Robust Column Mapping & Cross-Day Fusion)
 import os
 import streamlit as st
 import pandas as pd
@@ -54,7 +54,7 @@ def initialize_csvs():
                 f.write(headers)
 
 def load_and_clean_df(filepath):
-    """ฟังก์ชันช่วยโหลด CSV และจัดเรียงวันที่จากใหม่ไปเก่า"""
+    """ฟังก์ชันช่วยโหลด CSV และรองรับทุกชื่อคอลัมน์ พร้อมจัดเรียงวันที่จากใหม่ไปเก่า"""
     expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
     try:
         if not os.path.exists(filepath):
@@ -66,16 +66,26 @@ def load_and_clean_df(filepath):
             
         df.columns = df.columns.str.strip()
         
+        # Mapping ครอบคลุมทุกรูปแบบคอลัมน์ที่เป็นไปได้
         column_mapping = {
             "วันที่": "date",
+            "date": "date",
             "รางวัลที่ 1": "special",
             "รางวัลที่1": "special",
+            "special": "special",
+            "prize_5digit_1": "special",
             "รางวัลที่ 2": "first_prize",
             "รางวัลที่2": "first_prize",
+            "first_prize": "first_prize",
+            "prize_5digit_2": "first_prize",
             "3 ตัวบน": "top_3",
             "3ตัวบน": "top_3",
+            "three_digit": "top_3",
+            "top_3": "top_3",
             "2 ตัวล่าง": "bottom_2",
-            "2ตัวล่าง": "bottom_2"
+            "2ตัวล่าง": "bottom_2",
+            "two_digit": "bottom_2",
+            "bottom_2": "bottom_2"
         }
         df = df.rename(columns=column_mapping)
         
@@ -235,7 +245,6 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
     
-    # โหลดไฟล์วันศุกร์ (Friday) และวันเสาร์ (Saturday) มาเตรียมไว้
     df_fri = load_and_clean_df(DAY_CSV_MAP["Friday"])
     df_sat = load_and_clean_df(DAY_CSV_MAP["Saturday"])
     
