@@ -36,7 +36,6 @@ def parse_thai_date(x):
             return pd.NaT
         day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
         
-        # รองรับการแปลง พ.ศ. (เช่น 2569 -> 2026) และ ค.ศ. (2026)
         if year > 2400:
             year -= 543
         elif year < 100:
@@ -173,7 +172,7 @@ menu = st.sidebar.selectbox(
     ]
 )
 
-# เลือกดูข้อมูลตามวัน (ใช้สำหรับเมนูประวัติและการจัดการรายวัน)
+# เลือกดูข้อมูลตามวัน
 selected_day_tab = st.sidebar.selectbox(
     "เลือกวันประจำไฟล์ข้อมูล",
     ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -325,35 +324,26 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
                     
                     st.dataframe(pd.DataFrame(result_data), use_container_width=True)
 
-# เมนูที่ 5: Forward Prediction (อัปเดตให้อ่านงวดล่าสุดจากไฟล์รวมหลักอัตโนมัติ)
+# เมนูที่ 5: Forward Prediction (อัปเดตให้ดึงตามวันใน Sidebar เช่น Saturday ล่าสุด 31/10/2569)
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
-    st.header("🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล)")
+    st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล - {selected_day_tab})")
     
-    if not df_all_history.empty:
-        # ดึงงวดล่าสุดจากไฟล์รวมหลัก (history_hanoi.csv) เพื่อความถูกต้องล่าสุดเสมอ
-        latest_all = df_all_history.iloc[0]
-        
-        # แกะวันที่ล่าสุดเพื่อหาชื่อวันในสัปดาห์ (เช่น Friday)
-        latest_date_str = latest_all.get('date', '-')
-        _, latest_weekday_en = get_csv_file_for_date(latest_date_str)
-        
-        # โหลดข้อมูลไฟล์รายวันของวันนั้นๆ มาเทียบเคียง
-        target_day_csv = DAY_CSV_MAP.get(latest_weekday_en, active_csv_file)
-        df_latest_day_file = load_and_clean_df(target_day_csv)
-        latest_day = df_latest_day_file.iloc[0] if not df_latest_day_file.empty else latest_all
+    if not df_all_history.empty and not df_main.empty:
+        latest_all = df_all_history.iloc[0]  # งวดรวมล่าสุด
+        latest_day = df_main.iloc[0]         # งวดล่าสุดของวันที่เลือกใน Sidebar (เช่น Saturday ล่าสุด 31/10/2569)
 
-        st.subheader("📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ (อ้างอิงจากวันที่อัปเดตล่าสุด)")
+        st.subheader(f"📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ (ประจำวัน {selected_day_tab})")
         col_a, col_b = st.columns(2)
         with col_a:
             st.info(f"📊 **งวดรวมล่าสุด (`history_hanoi.csv`)**\n\nวันที่: **{latest_all.get('date', '-')}**\n\n3 ตัวบน: `{latest_all.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_all.get('bottom_2', '-')}`")
         with col_b:
-            st.success(f"📌 **งวดประจำวัน{latest_weekday_en}ล่าสุด**\n\nวันที่: **{latest_day.get('date', '-')}**\n\n3 ตัวบน: `{latest_day.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_day.get('bottom_2', '-')}`")
+            st.success(f"📌 **งวดประจำวัน{selected_day_tab}ล่าสุด (`{active_csv_file}`)**\n\nวันที่: **{latest_day.get('date', '-')}**\n\n3 ตัวบน: `{latest_day.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_day.get('bottom_2', '-')}`")
 
-        daily_6 = DAILY_NUMBERS.get(latest_weekday_en, "000000")
-        st.write(f"🎯 **ชุดเลขประจำวัน ({latest_weekday_en}):** `{daily_6}`")
+        daily_6 = DAILY_NUMBERS.get(selected_day_tab, "000000")
+        st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
 
         if st.button("🚀 ประมวลผลคำนวณผสานสถิติ 3 ส่วน"):
-            if latest_weekday_en == "Saturday":
+            if selected_day_tab == "Saturday":
                 st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออก 'เลขเบิ้ล' และ 'เลขหาม' สูงมาก แนะนำให้ติดชุดกันไว้เสมอ!")
 
             trans_all = get_transformations(str(latest_all.get('top_3', '000')), str(latest_all.get('bottom_2', '00')))
@@ -380,7 +370,7 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             gun_list = sorted_digits[4:7]
 
             st.markdown("---")
-            st.success(f"🎯 **สรุปแนวทางเลขเด่นผสาน 3 ส่วน ({latest_weekday_en})**")
+            st.success(f"🎯 **สรุปแนวทางเลขเด่นผสาน 3 ส่วน ({selected_day_tab})**")
             col1, col2, col3 = st.columns(3)
             col1.metric("เด่นสุด", den, f"{digit_scores[den]:.1f} แต้ม")
             col2.metric("เลขรอง", " - ".join(rong_list))
@@ -394,4 +384,4 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             st.write(f"• **ชุด 3 ตัวบนแนะนำ :** {', '.join(suggested_3d)}")
             st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ) :** {', '.join(suggested_double)}")
     else:
-        st.warning("⚠️ กรุณาตรวจสอบว่ามีข้อมูลในไฟล์ `history_hanoi.csv` เรียบร้อยแล้ว")
+        st.warning(f"⚠️ กรุณาตรวจสอบว่ามีข้อมูลในไฟล์ `history_hanoi.csv` และ `{active_csv_file}` เรียบร้อยแล้ว")
