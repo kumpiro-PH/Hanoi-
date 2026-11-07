@@ -1,4 +1,4 @@
-# app.py - Hanoi AI Professional (All-in-One Streamlit App - Multi-CSV & 3-Way Fusion)
+# app.py - Hanoi AI Professional (Streamlit App - Daily CSV Mode)
 import os
 import streamlit as st
 import pandas as pd
@@ -15,7 +15,6 @@ DAY_CSV_MAP = {
     "Friday": "history_hanoi_fri.csv",
     "Saturday": "history_hanoi_sat.csv",
     "Sunday": "history_hanoi_sun.csv",
-    "All History (ไฟล์รวมทั้งหมด)": "history_hanoi.csv"  # เพิ่มไฟล์รวมหลักเข้ามาใน Map
 }
 
 # ==================== ชุดเลขประจำวัน 6 ตัวตามสถิติ ====================
@@ -51,18 +50,14 @@ def get_csv_file_for_date(date_str):
     dt = parse_thai_date(date_str)
     if pd.notna(dt):
         weekday_en = dt.day_name()
-        return DAY_CSV_MAP.get(weekday_en, "history_hanoi.csv"), weekday_en
-    return "history_hanoi.csv", "Monday"
+        return DAY_CSV_MAP.get(weekday_en, "history_hanoi_sat.csv"), weekday_en
+    return "history_hanoi_sat.csv", "Saturday"
 
 def initialize_csvs():
-    """ตรวจสอบและสร้างไฟล์ CSV เริ่มต้นหากยังไม่มี"""
+    """ตรวจสอบและสร้างไฟล์ CSV ประจำวันเริ่มต้นหากยังไม่มี"""
     headers = "date,special,first_prize,top_3,bottom_2\n"
-    if not os.path.exists("history_hanoi.csv"):
-        with open("history_hanoi.csv", "w", encoding="utf-8") as f:
-            f.write(headers)
-            
     for day_en, filename in DAY_CSV_MAP.items():
-        if filename != "history_hanoi.csv" and not os.path.exists(filename):
+        if not os.path.exists(filename):
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(headers)
 
@@ -99,6 +94,11 @@ def load_and_clean_df(filepath):
         for col in expected_cols:
             if col not in df.columns:
                 df[col] = "-"
+                
+        # จัดเรียงวันที่จากใหม่ไปเก่าเสมอ
+        df["dt_temp"] = df["date"].apply(parse_thai_date)
+        df = df.sort_values(by="dt_temp", ascending=False).reset_index(drop=True)
+        df = df.drop(columns=["dt_temp"])
                 
         return df[expected_cols].fillna("-")
     except Exception:
@@ -158,8 +158,8 @@ def get_transformations(top_3_str, bottom_2_str="00"):
 
 initialize_csvs()
 
-st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (3-Way Fusion)")
-st.write("ระบบวิเคราะห์สถิติผสาน 3 แหล่งข้อมูล: ผลรวมล่าสุด + ผลรายวันล่าสุด + ชุดเลขประจำวัน")
+st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (Daily File Mode)")
+st.write("ระบบวิเคราะห์สถิติจากไฟล์ข้อมูลประจำวันในสัปดาห์โดยตรง")
 
 # เมนูด้านข้าง (Sidebar)
 menu = st.sidebar.selectbox(
@@ -173,28 +173,22 @@ menu = st.sidebar.selectbox(
     ]
 )
 
-# เลือกดูข้อมูลตามวันรวมถึงไฟล์รวมทั้งหมด
+# เลือกดูข้อมูลตามวัน
 selected_day_tab = st.sidebar.selectbox(
     "เลือกวันประจำไฟล์ข้อมูล",
-    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "All History (ไฟล์รวมทั้งหมด)"]
+    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 )
 active_csv_file = DAY_CSV_MAP[selected_day_tab]
 
-# โหลดข้อมูลประจำวันและข้อมูลรวมหลัก พร้อมจัดเรียงวันที่จากใหม่ไปเก่าเสมอ
+# โหลดข้อมูลเฉพาะไฟล์รายวันตามวันที่เลือก
 df_main = load_and_clean_df(active_csv_file)
-df_all_history = load_and_clean_df("history_hanoi.csv")
-
-if not df_all_history.empty and 'date' in df_all_history.columns:
-    df_all_history["dt_temp"] = df_all_history["date"].apply(parse_thai_date)
-    df_all_history = df_all_history.sort_values(by="dt_temp", ascending=False).reset_index(drop=True)
-    df_all_history = df_all_history.drop(columns=["dt_temp"])
 
 # เมนูที่ 1: อัปเดตผลรางวัล
 if menu == "1. อัปเดตผลรางวัล":
     st.header("📝 อัปเดตผลรางวัลหวยฮานอยใหม่")
     
     with st.form("update_form"):
-        date_str = st.text_input("ใส่วันที่ (DD/MM/YYYY เช่น 06/10/2569)")
+        date_str = st.text_input("ใส่วันที่ (DD/MM/YYYY เช่น 06/11/2569)")
         special = st.text_input("รางวัลพิเศษ (5 หลัก)")
         first_prize = st.text_input("รางวัลที่ 1 (5 หลัก)")
         top_3 = st.text_input("เลข 3 ตัวบน (3 หลัก)")
@@ -218,12 +212,12 @@ if menu == "1. อัปเดตผลรางวัล":
                     }])
                     
                     updated_day_df = pd.concat([new_row, target_df], ignore_index=True)
+                    # จัดเรียงใหม่ก่อนเซฟ
+                    updated_day_df["dt_temp"] = updated_day_df["date"].apply(parse_thai_date)
+                    updated_day_df = updated_day_df.sort_values(by="dt_temp", ascending=False).drop(columns=["dt_temp"])
                     updated_day_df.to_csv(target_csv, index=False)
                     
-                    updated_all_df = pd.concat([new_row, df_all_history], ignore_index=True)
-                    updated_all_df.to_csv("history_hanoi.csv", index=False)
-                    
-                    st.success(f"✅ บันทึกผลรางวัลลงไฟล์ **{target_day}** ({target_csv}) และไฟล์รวมหลัก สำเร็จเรียบร้อยแล้ว!")
+                    st.success(f"✅ บันทึกผลรางวัลลงไฟล์ประจำวัน **{target_day}** (`{target_csv}`) สำเร็จเรียบร้อยแล้ว!")
             else:
                 st.warning("⚠️ กรุณากรอกข้อมูลวันที่, 3 ตัวบน และ 2 ตัวล่างให้ครบถ้วน")
 
@@ -234,17 +228,15 @@ elif menu == "2. แสดงประวัติ (History)":
     if not df_main.empty:
         st.dataframe(df_main, use_container_width=True)
     else:
-        st.info(f"ยังไม่มีข้อมูลในไฟล์ {selected_day_tab}")
+        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab}")
 
 # เมนูที่ 3: ลบข้อมืองวดล่าสุด
 elif menu == "3. ลบข้อมืองวดล่าสุด":
     st.header(f"🗑️ ลบข้อมูลผลรางวัล (งวดล่าสุด - {selected_day_tab})")
-    st.write(f"📁 จากไฟล์: `{active_csv_file}`")
+    st.write(f"📁 จากไฟล์รายวัน: `{active_csv_file}`")
     
     if not df_main.empty and 'date' in df_main.columns:
         latest_row = df_main.head(1)
-        target_date_to_remove = latest_row['date'].values[0]
-        
         st.write("ข้อมืองวดล่าสุดด้านบนสุดที่จะถูกลบ:")
         st.dataframe(latest_row, use_container_width=True)
         
@@ -252,8 +244,7 @@ elif menu == "3. ลบข้อมืองวดล่าสุด":
             if len(df_main) > 0:
                 df_main = df_main.iloc[1:].reset_index(drop=True)
                 df_main.to_csv(active_csv_file, index=False)
-                
-                st.success(f"✅ ลบงวดล่าสุดจากไฟล์ `{active_csv_file}` เรียบร้อยแล้ว!")
+                st.success(f"✅ ลบงวดล่าสุดออกจากไฟล์ `{active_csv_file}` เรียบร้อยแล้ว!")
                 st.rerun()
     else:
         st.info("ไม่มีข้อมูลให้ลบในไฟล์นี้")
@@ -328,48 +319,41 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
 
 # เมนูที่ 5: Forward Prediction
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
-    st.header("🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล)")
+    st.header(f"🔮 Forward Prediction (คำนวณจากไฟล์ประจำวัน - {selected_day_tab})")
     
-    if not df_all_history.empty:
-        latest_all = df_all_history.iloc[0]  # งวดรวมล่าสุด
-        latest_date_str = latest_all.get('date', '-')
-        _, latest_weekday_en = get_csv_file_for_date(latest_date_str)
-        
-        target_day_csv = DAY_CSV_MAP.get(latest_weekday_en, "history_hanoi_sat.csv")
-        df_latest_day_file = load_and_clean_df(target_day_csv)
-        latest_day = df_latest_day_file.iloc[0] if not df_latest_day_file.empty else latest_all
+    if not df_main.empty and len(df_main) >= 2:
+        latest_day = df_main.iloc[0]  # งวดล่าสุดของวันนี้
+        prev_day = df_main.iloc[1]    # งวดก่อนหน้าของวันนี้
 
-        st.subheader("📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ")
+        st.subheader(f"📌 ข้อมูลงวดที่นำมาคำนวณ (`{active_csv_file}`)")
         col_a, col_b = st.columns(2)
         with col_a:
-            st.info(f"📊 **งวดรวมล่าสุด (`history_hanoi.csv`)**\n\nวันที่: **{latest_all.get('date', '-')}**\n\n3 ตัวบน: `{latest_all.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_all.get('bottom_2', '-')}`")
+            st.info(f"📊 **งวดล่าสุดประจำวัน**\n\nวันที่: **{latest_day.get('date', '-')}**\n\n3 ตัวบน: `{latest_day.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_day.get('bottom_2', '-')}`")
         with col_b:
-            st.success(f"📌 **งวดประจำวัน{latest_weekday_en}ล่าสุด**\n\nวันที่: **{latest_day.get('date', '-')}**\n\n3 ตัวบน: `{latest_day.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_day.get('bottom_2', '-')}`")
+            st.success(f"📌 **งวดก่อนหน้าประจำวัน**\n\nวันที่: **{prev_day.get('date', '-')}**\n\n3 ตัวบน: `{prev_day.get('top_3', '-')}` | 2 ตัวล่าง: `{prev_day.get('bottom_2', '-')}`")
 
-        daily_6 = DAILY_NUMBERS.get(latest_weekday_en, "000000")
-        st.write(f"🎯 **ชุดเลขประจำวัน ({latest_weekday_en}):** `{daily_6}`")
+        daily_6 = DAILY_NUMBERS.get(selected_day_tab, "000000")
+        st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
 
-        if st.button("🚀 ประมวลผลคำนวณผสานสถิติ 3 ส่วน"):
-            if latest_weekday_en == "Saturday":
+        if st.button("🚀 ประมวลผลคำนวณทำนายผล"):
+            if selected_day_tab == "Saturday":
                 st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออก 'เลขเบิ้ล' และ 'เลขหาม' สูงมาก แนะนำให้ติดชุดกันไว้เสมอ!")
 
-            trans_all = get_transformations(str(latest_all.get('top_3', '000')), str(latest_all.get('bottom_2', '00')))
-            trans_day = get_transformations(str(latest_day.get('top_3', '000')), str(latest_day.get('bottom_2', '00')))
+            trans_latest = get_transformations(str(latest_day.get('top_3', '000')), str(latest_day.get('bottom_2', '00')))
+            trans_prev = get_transformations(str(prev_day.get('top_3', '000')), str(prev_day.get('bottom_2', '00')))
 
             digit_scores = {str(i): 0.0 for i in range(10)}
 
             for d in daily_6: 
                 digit_scores[d] += 2.0
 
-            for d in trans_all['carry_over']: digit_scores[str(d)] += 1.5
-            for d in trans_all['pm1']: digit_scores[str(d)] += 1.2
-            for d in trans_all['sum_formulas']: digit_scores[d] += 1.2
-            for d in trans_all['cross_formulas']: digit_scores[str(d)] += 1.0
+            for d in trans_latest['carry_over']: digit_scores[str(d)] += 1.5
+            for d in trans_latest['pm1']: digit_scores[str(d)] += 1.2
+            for d in trans_latest['sum_formulas']: digit_scores[d] += 1.2
+            for d in trans_latest['cross_formulas']: digit_scores[str(d)] += 1.0
 
-            for d in trans_day['carry_over']: digit_scores[str(d)] += 1.5
-            for d in trans_day['pm1']: digit_scores[str(d)] += 1.2
-            for d in trans_day['sum_formulas']: digit_scores[d] += 1.2
-            for d in trans_day['cross_formulas']: digit_scores[str(d)] += 1.0
+            for d in trans_prev['carry_over']: digit_scores[str(d)] += 1.0
+            for d in trans_prev['pm1']: digit_scores[str(d)] += 0.8
 
             sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
             den = sorted_digits[0]
@@ -377,7 +361,7 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             gun_list = sorted_digits[4:7]
 
             st.markdown("---")
-            st.success(f"🎯 **สรุปแนวทางเลขเด่นผสาน 3 ส่วน ({latest_weekday_en})**")
+            st.success(f"🎯 **สรุปแนวทางเลขเด่น ({selected_day_tab})**")
             col1, col2, col3 = st.columns(3)
             col1.metric("เด่นสุด", den, f"{digit_scores[den]:.1f} แต้ม")
             col2.metric("เลขรอง", " - ".join(rong_list))
@@ -391,4 +375,4 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             st.write(f"• **ชุด 3 ตัวบนแนะนำ :** {', '.join(suggested_3d)}")
             st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ) :** {', '.join(suggested_double)}")
     else:
-        st.warning("⚠️ กรุณาตรวจสอบว่ามีข้อมูลในไฟล์ `history_hanoi.csv` เรียบร้อยแล้ว")
+        st.warning(f"⚠️ ข้อมูลในไฟล์ `{active_csv_file}` มีไม่เพียงพอสำหรับการคำนวณ (ต้องการอย่างน้อย 2 งวดขึ้นไปในวันเดียวกัน)")
