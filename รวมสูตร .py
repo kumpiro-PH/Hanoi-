@@ -160,7 +160,7 @@ def get_transformations(top_3_str, bottom_2_str="00"):
 initialize_csvs()
 
 st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (Cross-Day Fusion)")
-st.write("ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวัน: ศุกร์ล่าสุด + เสาร์ล่าสุด + ชุดเลขประจำวันเสาร์")
+st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวัน: งวดล่าสุด + เสาร์ล่าสุด + ชุดเลขประจำวัน ({selected_day_tab})")
 
 # เมนูด้านข้าง (Sidebar)
 menu = st.sidebar.selectbox(
