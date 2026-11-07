@@ -249,27 +249,22 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
     
-    # กำหนดลำดับวันในสัปดาห์เพื่อหา "2 วันล่าสุด" ก่อนหน้า หรือเลือกไฟล์ตามวันนั้นๆ
-    days_list = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    current_idx = days_list.index(selected_day_tab)
+    # โหลดข้อมูลเฉพาะของวันเสาร์ (Saturday) และวันศุกร์ (Friday) หรือตามที่ต้องการฟิกซ์ตายตัว
+    df_sat = load_and_clean_df(DAY_CSV_MAP["Saturday"])
+    df_fri = load_and_clean_df(DAY_CSV_MAP["Friday"])
     
-    # สมมติให้ดึงข้อมูลจากวันก่อนหน้า 2 วัน หรือเลือกไฟล์ตามวันที่เลือก
-    prev_day_1 = days_list[current_idx - 1] if current_idx > 0 else "Sunday"
-    prev_day_2 = days_list[current_idx - 2] if current_idx > 1 else "Saturday"
-    
-    df_p1 = load_and_clean_df(DAY_CSV_MAP[prev_day_1])
-    df_p2 = load_and_clean_df(DAY_CSV_MAP[prev_day_2])
-    
-    if not df_p1.empty and not df_p2.empty:
-        latest_1 = df_p1.iloc[0]
-        latest_2 = df_p2.iloc[0]
+    if not df_sat.empty:
+        latest_sat = df_sat.iloc[0]  # งวดล่าสุดของวันเสาร์จาก history_hanoi_sat.csv จริงๆ
+        latest_fri = df_fri.iloc[0] if not df_fri.empty else latest_sat
 
-        st.subheader(f"📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ ({prev_day_1} + {prev_day_2})")
+        st.subheader("📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ (เน้นวันเสาร์เป็นหลัก)")
         col_a, col_b = st.columns(2)
+        
+        # บังคับแสดงผลวันเสาร์ทางด้านขวา (หรือตามตำแหน่งที่ต้องการ) ให้ตรงกับ history_hanoi_sat.csv
         with col_a:
-            st.info(f"📊 **งวดล่าสุดประจำวัน {prev_day_1}** (`{DAY_CSV_MAP[prev_day_1]}`)\n\nวันที่: **{latest_1.get('date', '-')}**\n\n3 ตัวบน: `{latest_1.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_1.get('bottom_2', '-')}`")
+            st.info(f"📊 **งวดล่าสุดประจำวัน Friday** (`history_hanoi_fri.csv`)\n\nวันที่: **{latest_fri.get('date', '-')}**\n\n3 ตัวบน: `{latest_fri.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_fri.get('bottom_2', '-')}`")
         with col_b:
-            st.success(f"📌 **งวดล่าสุดประจำวัน {prev_day_2}** (`{DAY_CSV_MAP[prev_day_2]}`)\n\nวันที่: **{latest_2.get('date', '-')}**\n\n3 ตัวบน: `{latest_2.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_2.get('bottom_2', '-')}`")
+            st.success(f"📌 **งวดล่าสุดประจำวัน Saturday** (`history_hanoi_sat.csv`)\n\nวันที่: **{latest_sat.get('date', '-')}**\n\n3 ตัวบน: `{latest_sat.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_sat.get('bottom_2', '-')}`")
 
         daily_6 = DAILY_NUMBERS.get(selected_day_tab, "7890123")
         st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
@@ -278,19 +273,23 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             if selected_day_tab == "Saturday":
                 st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออก 'เลขเบิ้ล' และ 'เลขหาม' สูงมาก แนะนำให้ติดชุดกันไว้เสมอ!")
 
-            trans_1 = get_transformations(str(latest_1.get('top_3', '000')), str(latest_1.get('bottom_2', '00')))
-            trans_2 = get_transformations(str(latest_2.get('top_3', '000')), str(latest_2.get('bottom_2', '00')))
+            trans_fri = get_transformations(str(latest_fri.get('top_3', '000')), str(latest_fri.get('bottom_2', '00')))
+            trans_sat = get_transformations(str(latest_sat.get('top_3', '000')), str(latest_sat.get('bottom_2', '00')))
 
             digit_scores = {str(i): 0.0 for i in range(10)}
 
             for d in daily_6: 
                 digit_scores[d] += 2.0
 
-            for trans in [trans_1, trans_2]:
-                for d in trans['carry_over']: digit_scores[str(d)] += 1.5
-                for d in trans['pm1']: digit_scores[str(d)] += 1.2
-                for d in trans['sum_formulas']: digit_scores[d] += 1.2
-                for d in trans['cross_formulas']: digit_scores[str(d)] += 1.0
+            for d in trans_fri['carry_over']: digit_scores[str(d)] += 1.5
+            for d in trans_fri['pm1']: digit_scores[str(d)] += 1.2
+            for d in trans_fri['sum_formulas']: digit_scores[d] += 1.2
+            for d in trans_fri['cross_formulas']: digit_scores[str(d)] += 1.0
+
+            for d in trans_sat['carry_over']: digit_scores[str(d)] += 1.5
+            for d in trans_sat['pm1']: digit_scores[str(d)] += 1.2
+            for d in trans_sat['sum_formulas']: digit_scores[d] += 1.2
+            for d in trans_sat['cross_formulas']: digit_scores[str(d)] += 1.0
 
             sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
             den = sorted_digits[0]
@@ -312,4 +311,4 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             st.write(f"• **ชุด 3 ตัวบนแนะนำ :** {', '.join(suggested_3d)}")
             st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ) :** {', '.join(suggested_double)}")
     else:
-        st.warning(f"⚠️ ข้อมูลในไฟล์ประวัติสำหรับวัน {prev_day_1} หรือ {prev_day_2} ไม่เพียงพอสำหรับการคำนวณ")
+        st.warning("⚠️ ข้อมูลในไฟล์ `history_hanoi_sat.csv` ไม่เพียงพอสำหรับการคำนวณ")
