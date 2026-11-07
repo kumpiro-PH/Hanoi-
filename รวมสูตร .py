@@ -179,9 +179,14 @@ selected_day_tab = st.sidebar.selectbox(
 )
 active_csv_file = DAY_CSV_MAP[selected_day_tab]
 
-# โหลดข้อมูลประจำวันและข้อมูลรวม
+# โหลดข้อมูลประจำวันและข้อมูลรวมหลัก พร้อมจัดเรียงวันที่จากใหม่ไปเก่าเสมอ
 df_main = load_and_clean_df(active_csv_file)
 df_all_history = load_and_clean_df("history_hanoi.csv")
+
+if not df_all_history.empty and 'date' in df_all_history.columns:
+    df_all_history["dt_temp"] = df_all_history["date"].apply(parse_thai_date)
+    df_all_history = df_all_history.sort_values(by="dt_temp", ascending=False).reset_index(drop=True)
+    df_all_history = df_all_history.drop(columns=["dt_temp"])
 
 # เมนูที่ 1: อัปเดตผลรางวัล
 if menu == "1. อัปเดตผลรางวัล":
@@ -324,13 +329,13 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
                     
                     st.dataframe(pd.DataFrame(result_data), use_container_width=True)
 
-# เมนูที่ 5: Forward Prediction (อัปเดตให้ดึงตามวันใน Sidebar เช่น Saturday ล่าสุด 31/10/2569)
+# เมนูที่ 5: Forward Prediction
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล - {selected_day_tab})")
     
     if not df_all_history.empty and not df_main.empty:
-        latest_all = df_all_history.iloc[0]  # งวดรวมล่าสุด
-        latest_day = df_main.iloc[0]         # งวดล่าสุดของวันที่เลือกใน Sidebar (เช่น Saturday ล่าสุด 31/10/2569)
+        latest_all = df_all_history.iloc[0]  # งวดรวมล่าสุดที่เป็นภาพรวมทุกวันแบบเรียงวันที่สดใหม่ที่สุด
+        latest_day = df_main.iloc[0]         # งวดล่าสุดของวันที่เลือกใน Sidebar (เช่น Saturday ล่าสุด)
 
         st.subheader(f"📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ (ประจำวัน {selected_day_tab})")
         col_a, col_b = st.columns(2)
