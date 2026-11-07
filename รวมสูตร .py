@@ -15,6 +15,7 @@ DAY_CSV_MAP = {
     "Friday": "history_hanoi_fri.csv",
     "Saturday": "history_hanoi_sat.csv",
     "Sunday": "history_hanoi_sun.csv",
+    "All History (ไฟล์รวมทั้งหมด)": "history_hanoi.csv"  # เพิ่มไฟล์รวมหลักเข้ามาใน Map
 }
 
 # ==================== ชุดเลขประจำวัน 6 ตัวตามสถิติ ====================
@@ -61,7 +62,7 @@ def initialize_csvs():
             f.write(headers)
             
     for day_en, filename in DAY_CSV_MAP.items():
-        if not os.path.exists(filename):
+        if filename != "history_hanoi.csv" and not os.path.exists(filename):
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(headers)
 
@@ -172,10 +173,10 @@ menu = st.sidebar.selectbox(
     ]
 )
 
-# เลือกดูข้อมูลตามวัน
+# เลือกดูข้อมูลตามวันรวมถึงไฟล์รวมทั้งหมด
 selected_day_tab = st.sidebar.selectbox(
     "เลือกวันประจำไฟล์ข้อมูล",
-    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "All History (ไฟล์รวมทั้งหมด)"]
 )
 active_csv_file = DAY_CSV_MAP[selected_day_tab]
 
@@ -233,12 +234,12 @@ elif menu == "2. แสดงประวัติ (History)":
     if not df_main.empty:
         st.dataframe(df_main, use_container_width=True)
     else:
-        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab}")
+        st.info(f"ยังไม่มีข้อมูลในไฟล์ {selected_day_tab}")
 
 # เมนูที่ 3: ลบข้อมืองวดล่าสุด
 elif menu == "3. ลบข้อมืองวดล่าสุด":
     st.header(f"🗑️ ลบข้อมูลผลรางวัล (งวดล่าสุด - {selected_day_tab})")
-    st.write(f"📁 จากไฟล์รายวัน: `{active_csv_file}` และซิงค์กับ `history_hanoi.csv`")
+    st.write(f"📁 จากไฟล์: `{active_csv_file}`")
     
     if not df_main.empty and 'date' in df_main.columns:
         latest_row = df_main.head(1)
@@ -252,11 +253,7 @@ elif menu == "3. ลบข้อมืองวดล่าสุด":
                 df_main = df_main.iloc[1:].reset_index(drop=True)
                 df_main.to_csv(active_csv_file, index=False)
                 
-                if not df_all_history.empty and 'date' in df_all_history.columns:
-                    df_all_history = df_all_history[df_all_history['date'] != target_date_to_remove].reset_index(drop=True)
-                    df_all_history.to_csv("history_hanoi.csv", index=False)
-                
-                st.success("✅ ลบงวดล่าสุดเรียบร้อยแล้ว และอัปเดตข้อมูลทั้งไฟล์รายวันและไฟล์รวมเรียบร้อย!")
+                st.success(f"✅ ลบงวดล่าสุดจากไฟล์ `{active_csv_file}` เรียบร้อยแล้ว!")
                 st.rerun()
     else:
         st.info("ไม่มีข้อมูลให้ลบในไฟล์นี้")
@@ -331,24 +328,29 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
 
 # เมนูที่ 5: Forward Prediction
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
-    st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล - {selected_day_tab})")
+    st.header("🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล)")
     
-    if not df_all_history.empty and not df_main.empty:
-        latest_all = df_all_history.iloc[0]  # งวดรวมล่าสุดที่เป็นภาพรวมทุกวันแบบเรียงวันที่สดใหม่ที่สุด
-        latest_day = df_main.iloc[0]         # งวดล่าสุดของวันที่เลือกใน Sidebar (เช่น Saturday ล่าสุด)
+    if not df_all_history.empty:
+        latest_all = df_all_history.iloc[0]  # งวดรวมล่าสุด
+        latest_date_str = latest_all.get('date', '-')
+        _, latest_weekday_en = get_csv_file_for_date(latest_date_str)
+        
+        target_day_csv = DAY_CSV_MAP.get(latest_weekday_en, "history_hanoi_sat.csv")
+        df_latest_day_file = load_and_clean_df(target_day_csv)
+        latest_day = df_latest_day_file.iloc[0] if not df_latest_day_file.empty else latest_all
 
-        st.subheader(f"📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ (ประจำวัน {selected_day_tab})")
+        st.subheader("📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ")
         col_a, col_b = st.columns(2)
         with col_a:
             st.info(f"📊 **งวดรวมล่าสุด (`history_hanoi.csv`)**\n\nวันที่: **{latest_all.get('date', '-')}**\n\n3 ตัวบน: `{latest_all.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_all.get('bottom_2', '-')}`")
         with col_b:
-            st.success(f"📌 **งวดประจำวัน{selected_day_tab}ล่าสุด (`{active_csv_file}`)**\n\nวันที่: **{latest_day.get('date', '-')}**\n\n3 ตัวบน: `{latest_day.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_day.get('bottom_2', '-')}`")
+            st.success(f"📌 **งวดประจำวัน{latest_weekday_en}ล่าสุด**\n\nวันที่: **{latest_day.get('date', '-')}**\n\n3 ตัวบน: `{latest_day.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_day.get('bottom_2', '-')}`")
 
-        daily_6 = DAILY_NUMBERS.get(selected_day_tab, "000000")
-        st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
+        daily_6 = DAILY_NUMBERS.get(latest_weekday_en, "000000")
+        st.write(f"🎯 **ชุดเลขประจำวัน ({latest_weekday_en}):** `{daily_6}`")
 
         if st.button("🚀 ประมวลผลคำนวณผสานสถิติ 3 ส่วน"):
-            if selected_day_tab == "Saturday":
+            if latest_weekday_en == "Saturday":
                 st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออก 'เลขเบิ้ล' และ 'เลขหาม' สูงมาก แนะนำให้ติดชุดกันไว้เสมอ!")
 
             trans_all = get_transformations(str(latest_all.get('top_3', '000')), str(latest_all.get('bottom_2', '00')))
@@ -375,7 +377,7 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             gun_list = sorted_digits[4:7]
 
             st.markdown("---")
-            st.success(f"🎯 **สรุปแนวทางเลขเด่นผสาน 3 ส่วน ({selected_day_tab})**")
+            st.success(f"🎯 **สรุปแนวทางเลขเด่นผสาน 3 ส่วน ({latest_weekday_en})**")
             col1, col2, col3 = st.columns(3)
             col1.metric("เด่นสุด", den, f"{digit_scores[den]:.1f} แต้ม")
             col2.metric("เลขรอง", " - ".join(rong_list))
@@ -389,4 +391,4 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             st.write(f"• **ชุด 3 ตัวบนแนะนำ :** {', '.join(suggested_3d)}")
             st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ) :** {', '.join(suggested_double)}")
     else:
-        st.warning(f"⚠️ กรุณาตรวจสอบว่ามีข้อมูลในไฟล์ `history_hanoi.csv` และ `{active_csv_file}` เรียบร้อยแล้ว")
+        st.warning("⚠️ กรุณาตรวจสอบว่ามีข้อมูลในไฟล์ `history_hanoi.csv` เรียบร้อยแล้ว")
