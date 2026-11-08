@@ -1,7 +1,11 @@
-# app.py - Hanoi AI Professional (Robust Column Mapping & Cross-Day Fusion)
+# app.py - Hanoi AI Professional (GitHub API Sync & Cross-Day Fusion)
 import os
 import streamlit as st
 import pandas as pd
+from datetime import datetime
+import base64
+import requests
+from io import StringIO
 
 # ==================== ตั้งค่าหน้าเว็บ ====================
 st.set_page_config(page_title="Hanoi AI Professional", page_icon="🎯", layout="wide")
@@ -45,65 +49,125 @@ def parse_thai_date(x):
     except Exception:
         return pd.NaT
 
-def initialize_csvs():
-    """ตรวจสอบและสร้างไฟล์ CSV ประจำวันเริ่มต้นหากยังไม่มี"""
-    headers = "date,special,first_prize,top_3,bottom_2\n"
-    for day_en, filename in DAY_CSV_MAP.items():
-        if not os.path.exists(filename):
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(headers)
+def parse_date_for_sort(date_str):
+    try:
+        dt = parse_thai_date(date_str)
+        if pd.notna(dt):
+            return dt
+    except Exception:
+        pass
+    return datetime(1900, 1, 1)
+
+# ==================== GITHUB API SYNC FUNCTIONS ====================
+def load_csv_data_from_github(filename):
+    """อ่าน CSV จาก GitHub API (พร้อม fallback มาอ่านในเครื่อง)"""
+    github_token = st.secrets.get("GITHUB_TOKEN")
+    repo_name = st.secrets.get("GITHUB_REPO")
+    expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
+    
+    if github_token and repo_name and filename:
+        headers = {
+            "Authorization": f"Bearer {github_token}",
+            "Accept": "application/vnd.github+json"
+        }
+        file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
+        try:
+            res = requests.get(file_url, headers=headers)
+            if res.status_code == 200:
+                file_data = res.json()
+                content_decoded = base64.b64decode(file_data["content"]).decode("utf-8")
+                df = pd.read_csv(StringIO(content_decoded), dtype=str)
+                return clean_and_format_df(df, expected_cols)
+        except Exception:
+            pass
+            
+    # Fallback อ่านในเครื่อง
+    if os.path.exists(filename):
+        try:
+            df = pd.read_csv(filename, dtype=str)
+            return clean_and_format_df(df, expected_cols)
+        except Exception:
+            pass
+            
+    return pd.DataFrame(columns=expected_cols)
+
+def save_csv_to_github(filename, updated_df, new_date):
+    """บันทึกและซิงก์ข้อมูล CSV ตรงขึ้น GitHub ผ่าน API อัตโนมัติ"""
+    github_token = st.secrets.get("GITHUB_TOKEN")
+    repo_name = st.secrets.get("GITHUB_REPO")
+    branch = st.secrets.get("GITHUB_BRANCH", "main")
+    
+    if not github_token or not repo_name:
+        st.error("ยังไม่ได้ตั้งค่า GITHUB_TOKEN หรือ GITHUB_REPO ใน Streamlit Secrets")
+        return False
+        
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json"
+    }
+    file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
+    
+    # 1. ดึงไฟล์เดิมจาก GitHub เพื่อเอา SHA
+    res = requests.get(file_url, headers=headers)
+    file_sha = None
+    if res.status_code == 200:
+        file_sha = res.json().get("sha")
+        
+    # 2. แปลงเป็น CSV string และเข้ารหัส Base64
+    csv_string = updated_df.to_csv(index=False, encoding="utf-8-sig")
+    encoded_content = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
+    
+    # 3. ส่งคำขอ PUT ไปที่ GitHub API
+    payload = {
+        "message": f"Update {filename} for {new_date} via Streamlit App",
+        "content": encoded_content,
+        "branch": branch
+    }
+    if file_sha:
+        payload["sha"] = file_sha
+        
+    put_res = requests.put(file_url, headers=headers, json=payload)
+    if put_res.status_code in [200, 201]:
+        return True
+    else:
+        st.error(f"❌ GitHub API Error ({put_res.status_code}): {put_res.text}")
+        return False
+
+def clean_and_format_df(df, expected_cols):
+    if df.empty:
+        return pd.DataFrame(columns=expected_cols)
+        
+    df.columns = df.columns.str.strip()
+    
+    column_mapping = {
+        "วันที่": "date", "date": "date", "date_be": "date",
+        "รางวัลที่ 1": "special", "รางวัลที่1": "special", "special": "special", "special_prize": "special", "prize_5digit_1": "special",
+        "รางวัลที่ 2": "first_prize", "รางวัลที่2": "first_prize", "first_prize": "first_prize", "prize_5digit_2": "first_prize",
+        "3 ตัวบน": "top_3", "3ตัวบน": "top_3", "three_digit": "top_3", "top_3": "top_3", "top3": "top_3",
+        "2 ตัวล่าง": "bottom_2", "2ตัวล่าง": "bottom_2", "two_digit": "bottom_2", "bottom_2": "bottom_2", "bottom2": "bottom_2"
+    }
+    df = df.rename(columns=column_mapping)
+    
+    for col in expected_cols:
+        if col not in df.columns:
+            df[col] = "-"
+            
+    df["dt_temp"] = df["date"].apply(parse_date_for_sort)
+    df = df.sort_values(by="dt_temp", ascending=False).reset_index(drop=True)
+    df = df.drop(columns=["dt_temp"])
+    
+    return df[expected_cols].fillna("-")
 
 def load_and_clean_df(filepath):
-    """ฟังก์ชันช่วยโหลด CSV และรองรับทุกชื่อคอลัมน์ พร้อมจัดเรียงวันที่จากใหม่ไปเก่า"""
+    return load_csv_data_from_github(filepath)
+
+def initialize_csvs():
+    """ตรวจสอบและสร้างไฟล์ CSV ประจำวันเริ่มต้นหากยังไม่มี"""
     expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
-    try:
-        if not os.path.exists(filepath):
-            return pd.DataFrame(columns=expected_cols)
-        
-        df = pd.read_csv(filepath, dtype=str)
-        if df.empty:
-            return pd.DataFrame(columns=expected_cols)
-            
-        df.columns = df.columns.str.strip()
-        
-        # Mapping ครอบคลุมคอลัมน์จริง (date_be, special_prize, top3, bottom2)
-        column_mapping = {
-            "วันที่": "date",
-            "date": "date",
-            "date_be": "date",
-            "รางวัลที่ 1": "special",
-            "รางวัลที่1": "special",
-            "special": "special",
-            "special_prize": "special",
-            "prize_5digit_1": "special",
-            "รางวัลที่ 2": "first_prize",
-            "รางวัลที่2": "first_prize",
-            "first_prize": "first_prize",
-            "prize_5digit_2": "first_prize",
-            "3 ตัวบน": "top_3",
-            "3ตัวบน": "top_3",
-            "three_digit": "top_3",
-            "top_3": "top_3",
-            "top3": "top_3",
-            "2 ตัวล่าง": "bottom_2",
-            "2ตัวล่าง": "bottom_2",
-            "two_digit": "bottom_2",
-            "bottom_2": "bottom_2",
-            "bottom2": "bottom_2"
-        }
-        df = df.rename(columns=column_mapping)
-        
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = "-"
-                
-        df["dt_temp"] = df["date"].apply(parse_thai_date)
-        df = df.sort_values(by="dt_temp", ascending=False).reset_index(drop=True)
-        df = df.drop(columns=["dt_temp"])
-                
-        return df[expected_cols].fillna("-")
-    except Exception:
-        return pd.DataFrame(columns=expected_cols)
+    for day_en, filename in DAY_CSV_MAP.items():
+        if not os.path.exists(filename):
+            df_init = pd.DataFrame(columns=expected_cols)
+            df_init.to_csv(filename, index=False, encoding="utf-8-sig")
 
 def get_transformations(top_3_str, bottom_2_str="00"):
     """แปลงเลขฐานและสูตรคำนวณทั้งหมด"""
@@ -178,12 +242,12 @@ active_csv_file = DAY_CSV_MAP[selected_day_tab]
 df_main = load_and_clean_df(active_csv_file)
 
 # ==================== ส่วนแสดงผลหน้าเว็บ Streamlit ====================
-st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (Cross-Day Fusion)")
-st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวัน: งวดล่าสุด + วันก่อนหน้า + ชุดเลขประจำวัน ({selected_day_tab})")
+st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (GitHub Sync)")
+st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวันพร้อมซิงก์ GitHub อัตโนมัติ ({selected_day_tab})")
 
 # เมนูที่ 1: อัปเดตผลรางวัล
 if menu == "1. อัปเดตผลรางวัล":
-    st.header("📝 อัปเดตผลรางวัลหวยฮานอยใหม่")
+    st.header("📝 อัปเดตผลรางวัลหวยฮานอยใหม่ (ซิงก์ขึ้น GitHub)")
     
     with st.form("update_form"):
         date_str = st.text_input("ใส่วันที่ (DD/MM/YYYY เช่น 06/11/2569)")
@@ -192,7 +256,7 @@ if menu == "1. อัปเดตผลรางวัล":
         top_3 = st.text_input("เลข 3 ตัวบน (3 หลัก)")
         bottom_2 = st.text_input("เลข 2 ตัวล่าง (2 หลัก)")
         
-        submitted = st.form_submit_button("บันทึกผลรางวัล")
+        submitted = st.form_submit_button("💾 บันทึกและซิงก์ขึ้น GitHub")
         if submitted:
             if date_str and top_3 and bottom_2:
                 dt = parse_thai_date(date_str)
@@ -210,11 +274,16 @@ if menu == "1. อัปเดตผลรางวัล":
                     }])
                     
                     updated_df = pd.concat([new_row, target_df], ignore_index=True)
-                    updated_df["dt_temp"] = updated_df["date"].apply(parse_thai_date)
+                    updated_df["dt_temp"] = updated_df["date"].apply(parse_date_for_sort)
                     updated_df = updated_df.sort_values(by="dt_temp", ascending=False).drop(columns=["dt_temp"])
-                    updated_df.to_csv(target_csv, index=False)
                     
-                    st.success(f"✅ บันทึกผลลงไฟล์ **{target_day_en}** (`{target_csv}`) เรียบร้อยแล้ว!")
+                    # ซิงก์ขึ้น GitHub ผ่าน API
+                    success = save_csv_to_github(target_csv, updated_df, date_str.strip())
+                    if success:
+                        st.success(f"✅ บันทึกและซิงก์ข้อมูลลง GitHub (`{target_csv}`) เรียบร้อยแล้ว!")
+                        st.rerun()
+                    else:
+                        st.error("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ GitHub API กรุณาตรวจสอบ Secrets")
             else:
                 st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
 
@@ -222,7 +291,7 @@ if menu == "1. อัปเดตผลรางวัล":
 elif menu == "2. แสดงประวัติ (History)":
     st.header(f"📊 ประวัติผลรางวัล ({selected_day_tab})")
     if not df_main.empty:
-        st.dataframe(df_main, use_container_width=True)
+        st.dataframe(df_main, use_container_width=True, hide_index=True)
     else:
         st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab}")
 
@@ -230,12 +299,16 @@ elif menu == "2. แสดงประวัติ (History)":
 elif menu == "3. ลบข้อมืองวดล่าสุด":
     st.header(f"🗑️ ลบข้อมืองวดล่าสุด ({selected_day_tab})")
     if not df_main.empty:
-        st.dataframe(df_main.head(1), use_container_width=True)
-        if st.button("ยืนยันการลบงวดล่าสุด"):
+        st.dataframe(df_main.head(1), use_container_width=True, hide_index=True)
+        if st.button("ยืนยันการลบงวดล่าสุดและซิงก์ GitHub"):
             df_main = df_main.iloc[1:].reset_index(drop=True)
-            df_main.to_csv(active_csv_file, index=False)
-            st.success("✅ ลบงวดล่าสุดเรียบร้อยแล้ว!")
-            st.rerun()
+            latest_date = df_main.iloc[0]['date'] if not df_main.empty else "deleted"
+            success = save_csv_to_github(active_csv_file, df_main, latest_date)
+            if success:
+                st.success("✅ ลบและซิงก์ข้อมูลบน GitHub เรียบร้อยแล้ว!")
+                st.rerun()
+            else:
+                st.error("❌ ไม่สามารถซิงก์การลบไปยัง GitHub ได้")
     else:
         st.info("ไม่มีข้อมูลให้ลบ")
 
@@ -271,7 +344,7 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
         daily_6 = DAILY_NUMBERS.get(selected_day_tab, "7890123")
         st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
 
-        if st.button("🚀 ประมวลผลคำนวณผสานสถิติ 3 ส่วน"):
+        if st.button("🚀 ประมวลผลคำนวณผสานสถิติ 3 ส่วน", type="primary"):
             trans_current = get_transformations(str(latest_current.get('top_3', '000')), str(latest_current.get('bottom_2', '00')))
             trans_prev = get_transformations(str(latest_prev.get('top_3', '000')), str(latest_prev.get('bottom_2', '00')))
 
@@ -294,16 +367,16 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             st.markdown("---")
             st.success(f"🎯 **สรุปแนวทางเลขเด่นผสาน 3 ส่วน ({selected_day_tab})**")
             col1, col2, col3 = st.columns(3)
-            col1.metric("เด่นสุด", den, f"{digit_scores[den]:.1f} แต้ม")
-            col2.metric("เลขรอง", " - ".join(rong_list))
-            col3.metric("เลขกัน", " - ".join(gun_list))
+            col1.metric("เด่นสุด (Den)", den, f"{digit_scores[den]:.1f} แต้ม")
+            col2.metric("เลขรอง (Rong)", " - ".join(rong_list))
+            col3.metric("เลขกัน (Kan)", " - ".join(gun_list))
 
-            suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list]
-            suggested_3d = [f"{den}{rong_list[0]}{rong_list[1]}"]
-            suggested_double = [f"{den}{den}", f"{rong_list[0]}{rong_list[0]}"]
+            # ปรับปรุงการจับชุดตัวเลขตามความต้องการ
+            suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list] + [f"{den}{den}"]
+            suggested_3d = [f"{den}{r1}{r2}" for r1 in rong_list for r2 in rong_list if r1 != r2][:6]
 
-            st.write(f"• **ชุด 2 ตัวเน้นๆ (ไป-กลับ) :** {', '.join(suggested_2d)}")
-            st.write(f"• **ชุด 3 ตัวบนแนะนำ :** {', '.join(suggested_3d)}")
-            st.write(f"• **ชุด 2 ตัวเบิ้ล (แนะนำ) :** {', '.join(suggested_double)}")
+            st.markdown("### 💡 แนวทางตัวเลขจัดชุด (ปรับปรุงใหม่)")
+            st.write(f"• **2D เน้นไป-กลับ:** {', '.join(suggested_2d)}")
+            st.write(f"• **3D ชุด AI:** {', '.join(suggested_3d)}")
     else:
         st.warning(f"⚠️ ข้อมูลในไฟล์ประวัติสำหรับวัน {selected_day_tab} หรือ {prev_day_tab} ไม่เพียงพอสำหรับการคำนวณ")
