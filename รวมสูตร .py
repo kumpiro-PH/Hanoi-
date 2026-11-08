@@ -66,15 +66,15 @@ def load_and_clean_df(filepath):
             
         df.columns = df.columns.str.strip()
         
-        # เพิ่มคอลัมน์จริงจากไฟล์ของคุณเข้ามาใน mapping ตรงนี้ครับ
+        # Mapping ครอบคลุมคอลัมน์จริง (date_be, special_prize, top3, bottom2)
         column_mapping = {
             "วันที่": "date",
             "date": "date",
-            "date_be": "date",         # <--- เพิ่มเข้ามา
+            "date_be": "date",
             "รางวัลที่ 1": "special",
             "รางวัลที่1": "special",
             "special": "special",
-            "special_prize": "special", # <--- เพิ่มเข้ามา
+            "special_prize": "special",
             "prize_5digit_1": "special",
             "รางวัลที่ 2": "first_prize",
             "รางวัลที่2": "first_prize",
@@ -84,12 +84,12 @@ def load_and_clean_df(filepath):
             "3ตัวบน": "top_3",
             "three_digit": "top_3",
             "top_3": "top_3",
-            "top3": "top_3",           # <--- เพิ่มเข้ามา
+            "top3": "top_3",
             "2 ตัวล่าง": "bottom_2",
             "2ตัวล่าง": "bottom_2",
             "two_digit": "bottom_2",
             "bottom_2": "bottom_2",
-            "bottom2": "bottom_2"        # <--- เพิ่มเข้ามา
+            "bottom2": "bottom_2"
         }
         df = df.rename(columns=column_mapping)
         
@@ -155,14 +155,10 @@ def get_transformations(top_3_str, bottom_2_str="00"):
         "sandwiches": sandwiches
     }
 
-# ==================== ส่วนแสดงผลหน้าเว็บ Streamlit ====================
-
+# ==================== เริ่มต้นระบบไฟล์ ====================
 initialize_csvs()
 
-st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (Cross-Day Fusion)")
-st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวัน: งวดล่าสุด + เสาร์ล่าสุด + ชุดเลขประจำวัน ({selected_day_tab})")
-
-# เมนูด้านข้าง (Sidebar)
+# ==================== เมนูด้านข้าง (Sidebar) ====================
 menu = st.sidebar.selectbox(
     "เลือกเมนูการใช้งาน",
     [
@@ -180,6 +176,10 @@ selected_day_tab = st.sidebar.selectbox(
 )
 active_csv_file = DAY_CSV_MAP[selected_day_tab]
 df_main = load_and_clean_df(active_csv_file)
+
+# ==================== ส่วนแสดงผลหน้าเว็บ Streamlit ====================
+st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (Cross-Day Fusion)")
+st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวัน: งวดล่าสุด + วันก่อนหน้า + ชุดเลขประจำวัน ({selected_day_tab})")
 
 # เมนูที่ 1: อัปเดตผลรางวัล
 if menu == "1. อัปเดตผลรางวัล":
@@ -245,22 +245,20 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
     if st.button("เริ่มคำนวณสถิติย้อนหลัง"):
         st.info("ระบบกำลังประมวลผล Backtest ประจำวัน...")
 
-# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป)แบบเลื่อนวันตามจริง
+# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป) แบบเลื่อนวันตามจริง
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
     
-    # กำหนดลำดับวันเพื่อหา "วันก่อนหน้า" ของวันที่เลือก
     days_list = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     current_idx = days_list.index(selected_day_tab)
     prev_day_tab = days_list[current_idx - 1] if current_idx > 0 else "Sunday"
     
-    # ดึงข้อมูลไฟล์ของวันปัจจุบัน และวันก่อนหน้า
     df_current = load_and_clean_df(active_csv_file)
     df_prev = load_and_clean_df(DAY_CSV_MAP[prev_day_tab])
     
     if not df_current.empty and not df_prev.empty:
-        latest_current = df_current.iloc[0] # งวดล่าสุดของวันที่เลือก
-        latest_prev = df_prev.iloc[0]       # งวดล่าสุดของวันก่อนหน้า
+        latest_current = df_current.iloc[0]
+        latest_prev = df_prev.iloc[0]
 
         st.subheader(f"📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ ({selected_day_tab} + {prev_day_tab})")
         col_a, col_b = st.columns(2)
