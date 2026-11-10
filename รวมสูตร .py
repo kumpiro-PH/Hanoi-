@@ -371,12 +371,22 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             col2.metric("เลขรอง (Rong)", " - ".join(rong_list))
             col3.metric("เลขกัน (Kan)", " - ".join(gun_list))
 
-            # ปรับปรุงการจับชุดตัวเลขตามความต้องการ
-            suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list] + [f"{den}{den}"]
-            suggested_3d = [f"{den}{r1}{r2}" for r1 in rong_list for r2 in rong_list if r1 != r2][:6]
+            # ==================== การจัดการและคัดเลือกเลขเบิ้ล ====================
+            combined_doubles = list(trans_current['doubles'].union(trans_prev['doubles']))
+            priority_doubles = [f"{den}{den}"] + [f"{r}{r}" for r in rong_list]
+            
+            # จัดชุด 2D (ผสมเลขเบิ้ลเด่นเข้าไปด้วย)
+            suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list] + priority_doubles[:2]
+            
+            # จัดชุด 3D (ผสมเลขเบิ้ลหาม เช่น เด่น-เบิ้ล หรือ เบิ้ล-เด่น)
+            suggested_3d = [f"{den}{r1}{r1}" for r1 in rong_list[:2]] + [f"{r1}{den}{r1}" for r1 in rong_list[:2]] + [f"{den}{den}{den}"]
+            # เติมชุดปกติให้ครบ
+            base_3d = [f"{den}{r1}{r2}" for r1 in rong_list for r2 in rong_list if r1 != r2][:4]
+            final_3d_list = list(set(base_3d + suggested_3d))[:6]
 
-            st.markdown("### 💡 แนวทางตัวเลขจัดชุด (ปรับปรุงใหม่)")
-            st.write(f"• **2D เน้นไป-กลับ:** {', '.join(suggested_2d)}")
-            st.write(f"• **3D ชุด AI:** {', '.join(suggested_3d)}")
+            st.markdown("### 💡 แนวทางตัวเลขจัดชุด (รองรับเลขเบิ้ล)")
+            st.write(f"• **2D เน้นไป-กลับ + เบิ้ลเน้นๆ:** {', '.join(set(suggested_2d))}")
+            st.write(f"• **3D ชุด AI (ผสมเบิ้ล/หาม):** {', '.join(final_3d_list)}")
+            st.write(f"• **🔥 เลขเบิ้ลเด่นตามสถิติ:** {', '.join(priority_doubles)}")
     else:
         st.warning(f"⚠️ ข้อมูลในไฟล์ประวัติสำหรับวัน {selected_day_tab} หรือ {prev_day_tab} ไม่เพียงพอสำหรับการคำนวณ")
