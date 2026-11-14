@@ -1,4 +1,4 @@
-# app.py - Hanoi AI Professional (GitHub API Sync & Cross-Day Fusion)
+# app.py - Hanoi AI Professional (GitHub API Sync & Cross-Day Fusion - Fixed & Optimized)
 import os
 import streamlit as st
 import pandas as pd
@@ -63,6 +63,7 @@ def load_csv_data_from_github(filename):
     """อ่าน CSV จาก GitHub API (พร้อม fallback มาอ่านในเครื่อง)"""
     github_token = st.secrets.get("GITHUB_TOKEN")
     repo_name = st.secrets.get("GITHUB_REPO")
+    branch = st.secrets.get("GITHUB_BRANCH", "main")
     expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
     
     if github_token and repo_name and filename:
@@ -72,7 +73,7 @@ def load_csv_data_from_github(filename):
         }
         file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
         try:
-            res = requests.get(file_url, headers=headers)
+            res = requests.get(file_url, headers=headers, params={"ref": branch}, timeout=10)
             if res.status_code == 200:
                 file_data = res.json()
                 content_decoded = base64.b64decode(file_data["content"]).decode("utf-8")
@@ -92,7 +93,7 @@ def load_csv_data_from_github(filename):
     return pd.DataFrame(columns=expected_cols)
 
 def save_csv_to_github(filename, updated_df, new_date):
-    """บันทึกและซิงก์ข้อมูล CSV ตรงขึ้น GitHub ผ่าน API อัตโนมัติ"""
+    """บันทึกและซิงก์ข้อมูล CSV ตรงขึ้น GitHub ผ่าน API อัตโนมัติ (รองรับ Branch, Timeout และ Error Handling)"""
     github_token = st.secrets.get("GITHUB_TOKEN")
     repo_name = st.secrets.get("GITHUB_REPO")
     branch = st.secrets.get("GITHUB_BRANCH", "main")
@@ -107,30 +108,38 @@ def save_csv_to_github(filename, updated_df, new_date):
     }
     file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
     
-    # 1. ดึงไฟล์เดิมจาก GitHub เพื่อเอา SHA
-    res = requests.get(file_url, headers=headers)
-    file_sha = None
-    if res.status_code == 200:
-        file_sha = res.json().get("sha")
+    try:
+        # 1. ดึงไฟล์เดิมจาก GitHub เพื่อเอา SHA โดยระบุ ref=branch ให้ตรงกัน
+        res = requests.get(file_url, headers=headers, params={"ref": branch}, timeout=10)
+        file_sha = None
+        if res.status_code == 200:
+            file_sha = res.json().get("sha")
+            
+        # 2. แปลงเป็น CSV string และเข้ารหัส Base64
+        csv_string = updated_df.to_csv(index=False, encoding="utf-8-sig")
+        encoded_content = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
         
-    # 2. แปลงเป็น CSV string และเข้ารหัส Base64
-    csv_string = updated_df.to_csv(index=False, encoding="utf-8-sig")
-    encoded_content = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
-    
-    # 3. ส่งคำขอ PUT ไปที่ GitHub API
-    payload = {
-        "message": f"Update {filename} for {new_date} via Streamlit App",
-        "content": encoded_content,
-        "branch": branch
-    }
-    if file_sha:
-        payload["sha"] = file_sha
-        
-    put_res = requests.put(file_url, headers=headers, json=payload)
-    if put_res.status_code in [200, 201]:
-        return True
-    else:
-        st.error(f"❌ GitHub API Error ({put_res.status_code}): {put_res.text}")
+        # 3. ส่งคำขอ PUT ไปที่ GitHub API พร้อมกำหนด timeout
+        payload = {
+            "message": f"Update {filename} for {new_date} via Streamlit App",
+            "content": encoded_content,
+            "branch": branch
+        }
+        if file_sha:
+            payload["sha"] = file_sha
+            
+        put_res = requests.put(file_url, headers=headers, json=payload, timeout=10)
+        if put_res.status_code in [200, 201]:
+            return True
+        else:
+            st.error(f"❌ GitHub API Error ({put_res.status_code}): {put_res.text}")
+            return False
+            
+    except requests.exceptions.Timeout:
+        st.error("❌ การเชื่อมต่อ GitHub API หมดเวลา (Timeout) กรุณาลองใหม่อีกครั้ง")
+        return False
+    except Exception as e:
+        st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: {str(e)}")
         return False
 
 def clean_and_format_df(df, expected_cols):
@@ -245,7 +254,7 @@ df_main = load_and_clean_df(active_csv_file)
 st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (GitHub Sync)")
 st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวันพร้อมซิงก์ GitHub อัตโนมัติ ({selected_day_tab})")
 
-# เมนูที่ 1: อัปเดตผลรางวัล
+# เมนูที่ 1: อัปเดตผลรางวัล (พร้อมระบบป้องกันข้อมูลซ้ำ)
 if menu == "1. อัปเดตผลรางวัล":
     st.header("📝 อัปเดตผลรางวัลหวยฮานอยใหม่ (ซิงก์ขึ้น GitHub)")
     
@@ -265,25 +274,33 @@ if menu == "1. อัปเดตผลรางวัล":
                     target_csv = DAY_CSV_MAP.get(target_day_en, "history_hanoi_sat.csv")
                     target_df = load_and_clean_df(target_csv)
                     
-                    new_row = pd.DataFrame([{
-                        "date": date_str.strip(),
-                        "special": special.strip() if special else "-",
-                        "first_prize": first_prize.strip() if first_prize else "-",
-                        "top_3": top_3.strip(),
-                        "bottom_2": bottom_2.strip(),
-                    }])
+                    clean_date = date_str.strip()
                     
-                    updated_df = pd.concat([new_row, target_df], ignore_index=True)
-                    updated_df["dt_temp"] = updated_df["date"].apply(parse_date_for_sort)
-                    updated_df = updated_df.sort_values(by="dt_temp", ascending=False).drop(columns=["dt_temp"])
-                    
-                    # ซิงก์ขึ้น GitHub ผ่าน API
-                    success = save_csv_to_github(target_csv, updated_df, date_str.strip())
-                    if success:
-                        st.success(f"✅ บันทึกและซิงก์ข้อมูลลง GitHub (`{target_csv}`) เรียบร้อยแล้ว!")
-                        st.rerun()
+                    # ตรวจสอบข้อมูลซ้ำด้วยวันที่ก่อนบันทึก
+                    if not target_df.empty and clean_date in target_df["date"].values:
+                        st.warning(f"⚠️ มีข้อมูลของวันที่ `{clean_date}` ในระบบของวัน `{target_day_en}` อยู่แล้ว! กรุณาตรวจสอบหรือลบงวดเก่าออกก่อน")
                     else:
-                        st.error("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ GitHub API กรุณาตรวจสอบ Secrets")
+                        new_row = pd.DataFrame([{
+                            "date": clean_date,
+                            "special": special.strip() if special else "-",
+                            "first_prize": first_prize.strip() if first_prize else "-",
+                            "top_3": top_3.strip(),
+                            "bottom_2": bottom_2.strip(),
+                        }])
+                        
+                        updated_df = pd.concat([new_row, target_df], ignore_index=True)
+                        updated_df["dt_temp"] = updated_df["date"].apply(parse_date_for_sort)
+                        updated_df = updated_df.sort_values(by="dt_temp", ascending=False).drop(columns=["dt_temp"])
+                        
+                        # ซิงก์ขึ้น GitHub ผ่าน API
+                        success = save_csv_to_github(target_csv, updated_df, clean_date)
+                        if success:
+                            st.success(f"✅ บันทึกและซิงก์ข้อมูลลง GitHub (`{target_csv}`) เรียบร้อยแล้ว!")
+                            st.rerun()
+                        else:
+                            st.error("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ GitHub API กรุณาตรวจสอบ Secrets")
+                else:
+                    st.warning("⚠️ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้รูปแบบ DD/MM/YYYY")
             else:
                 st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
 
@@ -301,9 +318,9 @@ elif menu == "3. ลบข้อมืองวดล่าสุด":
     if not df_main.empty:
         st.dataframe(df_main.head(1), use_container_width=True, hide_index=True)
         if st.button("ยืนยันการลบงวดล่าสุดและซิงก์ GitHub"):
-            df_main = df_main.iloc[1:].reset_index(drop=True)
-            latest_date = df_main.iloc[0]['date'] if not df_main.empty else "deleted"
-            success = save_csv_to_github(active_csv_file, df_main, latest_date)
+            df_updated = df_main.iloc[1:].reset_index(drop=True)
+            latest_date = df_updated.iloc[0]['date'] if not df_updated.empty else "deleted"
+            success = save_csv_to_github(active_csv_file, df_updated, latest_date)
             if success:
                 st.success("✅ ลบและซิงก์ข้อมูลบน GitHub เรียบร้อยแล้ว!")
                 st.rerun()
@@ -318,7 +335,7 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
     if st.button("เริ่มคำนวณสถิติย้อนหลัง"):
         st.info("ระบบกำลังประมวลผล Backtest ประจำวัน...")
 
-# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป) แบบเลื่อนวันตามจริง (ปรับปรุงใหม่ให้เลขประจำวันมีผลจริง)
+# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป) แบบให้เลขประจำวันมีผลเปลี่ยนจริง
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
     
@@ -348,24 +365,18 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             trans_current = get_transformations(str(latest_current.get('top_3', '000')), str(latest_current.get('bottom_2', '00')))
             trans_prev = get_transformations(str(latest_prev.get('top_3', '000')), str(latest_prev.get('bottom_2', '00')))
 
-            # เริ่มต้นคะแนนดิบจากสูตรสถิติ CSV ก่อน
             digit_scores = {str(i): 0.0 for i in range(10)}
 
+            # 1. ให้ "เลขประจำวัน" เป็นฐานคะแนนหลักที่มีน้ำหนักสูง เพื่อให้เปลี่ยนวันแล้วผลเปลี่ยนทันที
+            for d in daily_6:  
+                digit_scores[str(d)] += 10.0
+
+            # 2. ให้สูตรสถิติ CSV เป็นตัวช่วยเสริมน้ำหนักย่อย
             for trans in [trans_current, trans_prev]:
                 for d in trans['carry_over']: digit_scores[str(d)] += 1.5
-                for d in trans['pm1']: digit_scores[str(d)] += 1.2
-                for d in trans['sum_formulas']: digit_scores[d] += 1.2
-                for d in trans['cross_formulas']: digit_scores[str(d)] += 1.0
-
-            # 🔴 จุดปรับปรุงสำคัญ: ให้เลขประจำวันเป็นตัวคูณและเพิ่มโบนัสพิเศษ (Cross-Factor)
-            # ทำให้เลขที่อยู่ใน DAILY_NUMBERS ของวันนั้นๆ มีน้ำหนักพุ่งสูงขึ้นอย่างชัดเจน
-            for d_char in daily_6:
-                d_str = str(d_char)
-                # 1. ให้โบนัสพื้นฐานสูงทันทีเพื่อให้เลขประจำวันติดกลุ่มเด่น
-                digit_scores[d_str] += 4.0  
-                # 2. ถ้าเลขตัวนั้นมีคะแนนจากสถิติอยู่แล้ว ให้คูณทวีคูณ (Amplification)
-                if digit_scores[d_str] > 4.0:
-                    digit_scores[d_str] *= 1.8
+                for d in trans['pm1']: digit_scores[str(d)] += 1.0
+                for d in trans['sum_formulas']: digit_scores[d] += 0.8
+                for d in trans['cross_formulas']: digit_scores[str(d)] += 0.5
 
             sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
             den = sorted_digits[0]
