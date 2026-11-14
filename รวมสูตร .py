@@ -318,7 +318,7 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
     if st.button("เริ่มคำนวณสถิติย้อนหลัง"):
         st.info("ระบบกำลังประมวลผล Backtest ประจำวัน...")
 
-# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป) แบบเลื่อนวันตามจริง
+# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป) แบบเลื่อนวันตามจริง (ปรับปรุงใหม่ให้เลขประจำวันมีผลจริง)
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
     
@@ -344,20 +344,28 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
         daily_6 = DAILY_NUMBERS.get(selected_day_tab, "7890123")
         st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
 
-        if st.button("🚀 ประมวลผลคำนวณผสานสถิติ 3 ส่วน", type="primary"):
+        if st.button("🚀 ประมวลผลคำนวณผสานสถิติและเลขประจำวัน", type="primary"):
             trans_current = get_transformations(str(latest_current.get('top_3', '000')), str(latest_current.get('bottom_2', '00')))
             trans_prev = get_transformations(str(latest_prev.get('top_3', '000')), str(latest_prev.get('bottom_2', '00')))
 
+            # เริ่มต้นคะแนนดิบจากสูตรสถิติ CSV ก่อน
             digit_scores = {str(i): 0.0 for i in range(10)}
-
-            for d in daily_6: 
-                digit_scores[d] += 2.0
 
             for trans in [trans_current, trans_prev]:
                 for d in trans['carry_over']: digit_scores[str(d)] += 1.5
                 for d in trans['pm1']: digit_scores[str(d)] += 1.2
                 for d in trans['sum_formulas']: digit_scores[d] += 1.2
                 for d in trans['cross_formulas']: digit_scores[str(d)] += 1.0
+
+            # 🔴 จุดปรับปรุงสำคัญ: ให้เลขประจำวันเป็นตัวคูณและเพิ่มโบนัสพิเศษ (Cross-Factor)
+            # ทำให้เลขที่อยู่ใน DAILY_NUMBERS ของวันนั้นๆ มีน้ำหนักพุ่งสูงขึ้นอย่างชัดเจน
+            for d_char in daily_6:
+                d_str = str(d_char)
+                # 1. ให้โบนัสพื้นฐานสูงทันทีเพื่อให้เลขประจำวันติดกลุ่มเด่น
+                digit_scores[d_str] += 4.0  
+                # 2. ถ้าเลขตัวนั้นมีคะแนนจากสถิติอยู่แล้ว ให้คูณทวีคูณ (Amplification)
+                if digit_scores[d_str] > 4.0:
+                    digit_scores[d_str] *= 1.8
 
             sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
             den = sorted_digits[0]
@@ -380,7 +388,6 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             
             # จัดชุด 3D (ผสมเลขเบิ้ลหาม เช่น เด่น-เบิ้ล หรือ เบิ้ล-เด่น)
             suggested_3d = [f"{den}{r1}{r1}" for r1 in rong_list[:2]] + [f"{r1}{den}{r1}" for r1 in rong_list[:2]] + [f"{den}{den}{den}"]
-            # เติมชุดปกติให้ครบ
             base_3d = [f"{den}{r1}{r2}" for r1 in rong_list for r2 in rong_list if r1 != r2][:4]
             final_3d_list = list(set(base_3d + suggested_3d))[:6]
 
