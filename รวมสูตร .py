@@ -1,4 +1,4 @@
-# app.py - Hanoi AI Professional (GitHub API Sync & Cross-Day Fusion - Fixed & Optimized)
+# app.py - Hanoi AI Professional (GitHub API Sync & Cross-Day Fusion - Mon-Sun CSV Version)
 import os
 import streamlit as st
 import pandas as pd
@@ -10,7 +10,7 @@ from io import StringIO
 # ==================== ตั้งค่าหน้าเว็บ ====================
 st.set_page_config(page_title="Hanoi AI Professional", page_icon="🎯", layout="wide")
 
-# ==================== กำหนดชื่อไฟล์ CSV ตามวันในสัปดาห์ ====================
+# ==================== กำหนดชื่อไฟล์ CSV ตามวันในสัปดาห์ (ยกเลิกไฟล์ lao) ====================
 DAY_CSV_MAP = {
     "Monday": "history_hanoi_mon.csv",
     "Tuesday": "history_hanoi_tue.csv",
@@ -93,7 +93,7 @@ def load_csv_data_from_github(filename):
     return pd.DataFrame(columns=expected_cols)
 
 def save_csv_to_github(filename, updated_df, new_date):
-    """บันทึกและซิงก์ข้อมูล CSV ตรงขึ้น GitHub ผ่าน API อัตโนมัติ (รองรับ Branch, Timeout และ Error Handling)"""
+    """บันทึกและซิงก์ข้อมูล CSV ตรงขึ้น GitHub ผ่าน API อัตโนมัติ"""
     github_token = st.secrets.get("GITHUB_TOKEN")
     repo_name = st.secrets.get("GITHUB_REPO")
     branch = st.secrets.get("GITHUB_BRANCH", "main")
@@ -109,7 +109,7 @@ def save_csv_to_github(filename, updated_df, new_date):
     file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
     
     try:
-        # 1. ดึงไฟล์เดิมจาก GitHub เพื่อเอา SHA โดยระบุ ref=branch ให้ตรงกัน
+        # 1. ดึงไฟล์เดิมจาก GitHub เพื่อเอา SHA
         res = requests.get(file_url, headers=headers, params={"ref": branch}, timeout=10)
         file_sha = None
         if res.status_code == 200:
@@ -119,7 +119,7 @@ def save_csv_to_github(filename, updated_df, new_date):
         csv_string = updated_df.to_csv(index=False, encoding="utf-8-sig")
         encoded_content = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
         
-        # 3. ส่งคำขอ PUT ไปที่ GitHub API พร้อมกำหนด timeout
+        # 3. ส่งคำขอ PUT ไปที่ GitHub API
         payload = {
             "message": f"Update {filename} for {new_date} via Streamlit App",
             "content": encoded_content,
@@ -254,7 +254,7 @@ df_main = load_and_clean_df(active_csv_file)
 st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (GitHub Sync)")
 st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวันพร้อมซิงก์ GitHub อัตโนมัติ ({selected_day_tab})")
 
-# เมนูที่ 1: อัปเดตผลรางวัล (พร้อมระบบป้องกันข้อมูลซ้ำ)
+# เมนูที่ 1: อัปเดตผลรางวัล
 if menu == "1. อัปเดตผลรางวัล":
     st.header("📝 อัปเดตผลรางวัลหวยฮานอยใหม่ (ซิงก์ขึ้น GitHub)")
     
@@ -276,7 +276,6 @@ if menu == "1. อัปเดตผลรางวัล":
                     
                     clean_date = date_str.strip()
                     
-                    # ตรวจสอบข้อมูลซ้ำด้วยวันที่ก่อนบันทึก
                     if not target_df.empty and clean_date in target_df["date"].values:
                         st.warning(f"⚠️ มีข้อมูลของวันที่ `{clean_date}` ในระบบของวัน `{target_day_en}` อยู่แล้ว! กรุณาตรวจสอบหรือลบงวดเก่าออกก่อน")
                     else:
@@ -292,7 +291,6 @@ if menu == "1. อัปเดตผลรางวัล":
                         updated_df["dt_temp"] = updated_df["date"].apply(parse_date_for_sort)
                         updated_df = updated_df.sort_values(by="dt_temp", ascending=False).drop(columns=["dt_temp"])
                         
-                        # ซิงก์ขึ้น GitHub ผ่าน API
                         success = save_csv_to_github(target_csv, updated_df, clean_date)
                         if success:
                             st.success(f"✅ บันทึกและซิงก์ข้อมูลลง GitHub (`{target_csv}`) เรียบร้อยแล้ว!")
@@ -335,7 +333,7 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
     if st.button("เริ่มคำนวณสถิติย้อนหลัง"):
         st.info("ระบบกำลังประมวลผล Backtest ประจำวัน...")
 
-# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป) แบบให้เลขประจำวันมีผลเปลี่ยนจริง
+# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป)
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
     
@@ -367,11 +365,9 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
 
             digit_scores = {str(i): 0.0 for i in range(10)}
 
-            # 1. ให้ "เลขประจำวัน" เป็นฐานคะแนนหลักที่มีน้ำหนักสูง เพื่อให้เปลี่ยนวันแล้วผลเปลี่ยนทันที
             for d in daily_6:  
                 digit_scores[str(d)] += 10.0
 
-            # 2. ให้สูตรสถิติ CSV เป็นตัวช่วยเสริมน้ำหนักย่อย
             for trans in [trans_current, trans_prev]:
                 for d in trans['carry_over']: digit_scores[str(d)] += 1.5
                 for d in trans['pm1']: digit_scores[str(d)] += 1.0
@@ -390,14 +386,11 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             col2.metric("เลขรอง (Rong)", " - ".join(rong_list))
             col3.metric("เลขกัน (Kan)", " - ".join(gun_list))
 
-            # ==================== การจัดการและคัดเลือกเลขเบิ้ล ====================
             combined_doubles = list(trans_current['doubles'].union(trans_prev['doubles']))
             priority_doubles = [f"{den}{den}"] + [f"{r}{r}" for r in rong_list]
             
-            # จัดชุด 2D (ผสมเลขเบิ้ลเด่นเข้าไปด้วย)
             suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list] + priority_doubles[:2]
             
-            # จัดชุด 3D (ผสมเลขเบิ้ลหาม เช่น เด่น-เบิ้ล หรือ เบิ้ล-เด่น)
             suggested_3d = [f"{den}{r1}{r1}" for r1 in rong_list[:2]] + [f"{r1}{den}{r1}" for r1 in rong_list[:2]] + [f"{den}{den}{den}"]
             base_3d = [f"{den}{r1}{r2}" for r1 in rong_list for r2 in rong_list if r1 != r2][:4]
             final_3d_list = list(set(base_3d + suggested_3d))[:6]
