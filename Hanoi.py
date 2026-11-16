@@ -325,6 +325,11 @@ def digit_scores(df, next_day):
         latest["top_3"], latest["bottom_2"], next_day, df
     )
     weights = dynamic_weights(df)
+    
+    # 🔥 [ปรับปรุง] เพิ่มน้ำหนักให้สูตร Daily 6-Digit ตามวันที่เลือก เพื่อให้ผลลัพธ์เปลี่ยนไปตามวัน
+    if "Daily 6-Digit" in weights:
+        weights["Daily 6-Digit"] *= 2.5  # ปรับตัวเลขนี้เพิ่มขึ้นได้ถ้าอยากให้มีผลกับวันมากขึ้น
+
     scores = {str(i): 0.0 for i in range(10)}
 
     for formula in FORMULAS:
