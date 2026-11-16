@@ -17,9 +17,11 @@ DAY_CSV_MAP = {
     "Wednesday": "history_lao_wed.csv",
     "Thursday": "history_lao_thu.csv",
     "Friday": "history_lao_fri.csv",
-    "Saturday": "history_lao_sat.csv",
-    "Sunday": "history_lao_sun.csv",
 }
+
+# อนุญาตให้ระบบอ่าน/เขียนเฉพาะ CSV ประจำวันจันทร์-ศุกร์
+ALLOWED_CSV_FILES = set(DAY_CSV_MAP.values())
+WEEKDAYS = list(DAY_CSV_MAP.keys())
 
 # ==================== ชุดเลขประจำวัน 6 ตัวตามสถิติ ====================
 DAILY_NUMBERS = {
@@ -28,8 +30,6 @@ DAILY_NUMBERS = {
     "Wednesday": "698741",
     "Thursday": "421590",
     "Friday": "769825",
-    "Saturday": "094572",
-    "Sunday": "768304",
 }
 
 def parse_thai_date(x):
@@ -60,7 +60,11 @@ def parse_date_for_sort(date_str):
 
 # ==================== GITHUB API SYNC FUNCTIONS ====================
 def load_csv_data_from_github(filename):
-    """อ่าน CSV จาก GitHub API ประจำวัน (พร้อม fallback มาอ่านในเครื่อง)"""
+    """อ่านเฉพาะ CSV ประจำวันจันทร์-ศุกร์จาก GitHub API (พร้อม fallback ในเครื่อง)"""
+    if filename not in ALLOWED_CSV_FILES:
+        st.error(f"ไฟล์นี้ไม่ได้รับอนุญาตให้โหลด: {filename}")
+        return pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
+
     github_token = st.secrets.get("GITHUB_TOKEN")
     repo_name = st.secrets.get("GITHUB_REPO")
     branch = st.secrets.get("GITHUB_BRANCH", "main")
@@ -93,7 +97,11 @@ def load_csv_data_from_github(filename):
     return pd.DataFrame(columns=expected_cols)
 
 def save_csv_to_github(filename, updated_df, new_date):
-    """บันทึกและซิงก์ข้อมูล CSV ประจำวันตรงขึ้น GitHub ผ่าน API อัตโนมัติ"""
+    """บันทึกเฉพาะ CSV ประจำวันจันทร์-ศุกร์ขึ้น GitHub ผ่าน API"""
+    if filename not in ALLOWED_CSV_FILES:
+        st.error(f"ไฟล์นี้ไม่ได้รับอนุญาตให้บันทึก: {filename}")
+        return False
+
     github_token = st.secrets.get("GITHUB_TOKEN")
     repo_name = st.secrets.get("GITHUB_REPO")
     branch = st.secrets.get("GITHUB_BRANCH", "main")
@@ -242,14 +250,14 @@ menu = st.sidebar.selectbox(
 
 selected_day_tab = st.sidebar.selectbox(
     "เลือกวันประจำไฟล์ข้อมูล",
-    ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    WEEKDAYS
 )
 active_csv_file = DAY_CSV_MAP[selected_day_tab]
 df_main = load_and_clean_df(active_csv_file)
 
 # ==================== ส่วนแสดงผลหน้าเว็บ Streamlit ====================
 st.title("🧠 Lao AI Professional - ระบบวิเคราะห์หวยลาว (GitHub Sync)")
-st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวันพร้อมซิงก์ GitHub อัตโนมัติ ({selected_day_tab})")
+st.write(f"ระบบอ่าน/บันทึกผ่าน GitHub API เฉพาะ history_lao_mon.csv ถึง history_lao_fri.csv และวิเคราะห์ข้อมูลข้ามวัน ({selected_day_tab})")
 
 # เมนูที่ 1: อัปเดตผลรางวัล
 if menu == "1. อัปเดตผลรางวัล":
@@ -268,7 +276,11 @@ if menu == "1. อัปเดตผลรางวัล":
                 dt = parse_thai_date(date_str)
                 if pd.notna(dt):
                     target_day_en = dt.day_name()
-                    target_csv = DAY_CSV_MAP.get(target_day_en, "history_lao_sat.csv")
+                    if target_day_en not in DAY_CSV_MAP:
+                        st.warning("⚠️ ระบบรองรับการบันทึกเฉพาะวันจันทร์-ศุกร์เท่านั้น")
+                        st.stop()
+
+                    target_csv = DAY_CSV_MAP[target_day_en]
                     target_df = load_and_clean_df(target_csv)
                     
                     clean_date = date_str.strip()
@@ -334,9 +346,9 @@ elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
     
-    days_list = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    current_idx = days_list.index(selected_day_tab)
-    prev_day_tab = days_list[current_idx - 1] if current_idx > 0 else "Sunday"
+    # ใช้วันทำการก่อนหน้า: Monday จะอ้างอิงข้อมูลล่าสุดของ Friday
+    current_idx = WEEKDAYS.index(selected_day_tab)
+    prev_day_tab = WEEKDAYS[current_idx - 1] if current_idx > 0 else "Friday"
     
     df_current = load_and_clean_df(active_csv_file)
     df_prev = load_and_clean_df(DAY_CSV_MAP[prev_day_tab])
