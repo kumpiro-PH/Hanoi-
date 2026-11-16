@@ -46,7 +46,7 @@ FORMULAS = [
 DAYS_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 # ================================================================
-# CORE LOGIC FUNCTIONS (จากโค้ดต้นฉบับ)
+# CORE LOGIC FUNCTIONS
 # ================================================================
 def zfill_num(value, width):
     try:
@@ -326,9 +326,9 @@ def digit_scores(df, next_day):
     )
     weights = dynamic_weights(df)
     
-    # 🔥 [ปรับปรุง] เพิ่มน้ำหนักให้สูตร Daily 6-Digit ตามวันที่เลือก เพื่อให้ผลลัพธ์เปลี่ยนไปตามวัน
+    # เพิ่มน้ำหนักให้สูตร Daily 6-Digit ตามวันที่เลือก
     if "Daily 6-Digit" in weights:
-        weights["Daily 6-Digit"] *= 2.5  # ปรับตัวเลขนี้เพิ่มขึ้นได้ถ้าอยากให้มีผลกับวันมากขึ้น
+        weights["Daily 6-Digit"] *= 2.5
 
     scores = {str(i): 0.0 for i in range(10)}
 
@@ -354,6 +354,12 @@ def generate_prediction(df, next_day):
 
     latest = df.iloc[-1]
     scores, weights, daily = digit_scores(df, next_day)
+    
+    # เพิ่มโบนัสคะแนนให้เลขประจำวันของแต่ละวัน เพื่อให้ชุดเจาะเปลี่ยนตามวัน
+    for d in daily:
+        if d in scores:
+            scores[d] += 5.0
+
     ordered = sorted(scores, key=lambda d: (-scores[d], d))
     den = ordered[0]
     rong = ordered[1:4]
@@ -399,17 +405,14 @@ def generate_prediction(df, next_day):
 def main():
     initialize_csv()
 
-    # Header
     st.title("🎯 HANOI AI PROFESSIONAL v2.0")
     st.caption("Dynamic Backtest + Formula Accuracy + Weighted Prediction")
 
-    # Sidebar: จัดการไฟล์ CSV (Import / Export)
     with st.sidebar:
         st.header("📁 จัดการฐานข้อมูล (CSV)")
         df_current = load_history().sort_values("dt", ascending=False)
         st.metric("จำนวนงวดในระบบ", f"{len(df_current)} งวด")
 
-        # ปุ่มดาวน์โหลด CSV สำรองข้อมูล
         raw_csv = df_current.drop(columns=["dt", "weekday_en"], errors="ignore").to_csv(index=False, encoding="utf-8-sig")
         st.download_button(
             label="⬇️ ดาวน์โหลด history_hanoi.csv",
@@ -421,7 +424,6 @@ def main():
 
         st.divider()
 
-        # อัปโหลด CSV ทับของเดิม
         uploaded_file = st.file_uploader("⬆️ อัปโหลดไฟล์ CSV เพื่อกู้คืนข้อมูล", type=["csv"])
         if uploaded_file is not None:
             try:
@@ -438,11 +440,9 @@ def main():
 
         st.info("💡 **คำแนะนำ:** บน Streamlit Cloud ข้อมูลอาจถูกรีเซ็ตหากแอปหยุดทำงานเป็นเวลานาน ควรดาวน์โหลดไฟล์ CSV เก็บไว้หลังอัปเดตผลรางวัล")
 
-    # โหลดข้อมูลเรียงตามเวลา (เก่า -> ใหม่) สำหรับคำนวณ
     df_asc = load_history().sort_values("dt").reset_index(drop=True)
     df_desc = df_asc.sort_values("dt", ascending=False).reset_index(drop=True)
 
-    # Tabs หลัก
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔮 วิเคราะห์งวดถัดไป (Prediction)",
         "➕ อัปเดต / ลบผลรางวัล",
@@ -451,15 +451,11 @@ def main():
         "📅 เลขประจำวัน (Daily 6-Digit)",
     ])
 
-    # ------------------------------------------------------------
-    # TAB 1: FORWARD PREDICTION
-    # ------------------------------------------------------------
     with tab1:
         if df_asc.empty:
             st.warning("⚠️ ไม่มีข้อมูลในระบบ กรุณาเพิ่มข้อมูลในแท็บ 'อัปเดต / ลบผลรางวัล'")
         else:
             latest = df_asc.iloc[-1]
-            # คาดเดาวันถัดไปอัตโนมัติ (บวก 1 วันจากงวดล่าสุด)
             next_dt = latest["dt"] + pd.Timedelta(days=1)
             default_next_day = next_dt.day_name()
             default_idx = DAYS_ORDER.index(default_next_day) if default_next_day in DAYS_ORDER else 0
@@ -481,7 +477,6 @@ def main():
 
             st.subheader(f"สรุปแนวทางประจำวัน {selected_day} (Daily: `{pred['daily']}`)")
 
-            # แสดงตัวเลข เด่น - รอง - กัน
             m1, m2, m3 = st.columns(3)
             with m1:
                 st.metric(
@@ -502,7 +497,6 @@ def main():
 
             st.divider()
 
-            # ชุดตัวเลขเจาะ
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### 🔢 ชุด 2 ตัว (เน้นไป-กลับ)")
@@ -520,7 +514,6 @@ def main():
 
             st.divider()
 
-            # กราฟคะแนนรายตัวเลข และ น้ำหนักสูตร
             g1, g2 = st.columns(2)
             with g1:
                 st.markdown("#### 📈 คะแนนความน่าจะเป็นรายตัวเลข (0-9)")
@@ -538,16 +531,12 @@ def main():
                 ])
                 st.dataframe(weight_df, use_container_width=True, hide_index=True)
 
-    # ------------------------------------------------------------
-    # TAB 2: UPDATE / DELETE DATA
-    # ------------------------------------------------------------
     with tab2:
         col_add, col_del = st.columns([3, 2])
 
         with col_add:
             st.subheader("➕ บันทึกผลรางวัลงวดใหม่")
             with st.form("add_result_form", clear_on_submit=True):
-                # แนะนำวันที่ถัดไปอัตโนมัติ
                 if not df_asc.empty:
                     sug_dt = df_asc.iloc[-1]["dt"] + pd.Timedelta(days=1)
                     sug_date_str = f"{sug_dt.day:02d}/{sug_dt.month:02d}/{sug_dt.year + 543}"
@@ -606,9 +595,6 @@ def main():
                     st.success(f"ลบงวดวันที่ {latest_del['date']} เรียบร้อยแล้ว")
                     st.rerun()
 
-    # ------------------------------------------------------------
-    # TAB 3: FORMULA RANKING & BACKTEST
-    # ------------------------------------------------------------
     with tab3:
         st.subheader("📊 ผลทดสอบย้อนหลังและจัดอันดับสูตร (Formula Ranking)")
         if len(df_asc) < 2:
@@ -628,7 +614,6 @@ def main():
             st.subheader("🔍 รายละเอียดการทดสอบย้อนหลังรายงวด (Backtest Detail)")
             bt_df = backtest_dataframe(df_asc)
             
-            # ตัวกรองดูเฉพาะสูตรที่สนใจ
             filter_formula = st.multiselect(
                 "กรองตามสูตร (ว่างไว้ = แสดงทั้งหมด)",
                 options=FORMULAS,
@@ -639,24 +624,17 @@ def main():
             else:
                 bt_display = bt_df
 
-            # เรียงจากงวดล่าสุดลงไป
             st.dataframe(
                 bt_display.iloc[::-1].head(100),
                 use_container_width=True,
                 hide_index=True,
             )
 
-    # ------------------------------------------------------------
-    # TAB 4: HISTORY
-    # ------------------------------------------------------------
     with tab4:
         st.subheader(f"📜 ประวัติผลรางวัลทั้งหมด ({len(df_desc)} งวด)")
         cols = ["date", "weekday_en", "special", "first_prize", "top_3", "bottom_2"]
         st.dataframe(df_desc[cols], use_container_width=True, hide_index=True)
 
-    # ------------------------------------------------------------
-    # TAB 5: DAILY NUMBERS
-    # ------------------------------------------------------------
     with tab5:
         st.subheader("📅 ชุดเลขประจำวัน (Daily 6-Digit)")
         daily_rows = []
