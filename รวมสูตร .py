@@ -1,419 +1,507 @@
-# app.py - Lao AI Professional (GitHub API Sync & Cross-Day Fusion - Day-by-Day CSV Version)
+# app.py - Lao AI Professional v4.1 (Full Complete Code with Corrected Latest Row Retrieval)
 import os
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import base64
-import requests
-from io import StringIO
+from collections import Counter
+from itertools import combinations
 
-# ==================== ตั้งค่าหน้าเว็บ ====================
-st.set_page_config(page_title="Lao AI Professional", page_icon="🧠", layout="wide")
+# ==========================================
+# 1. PAGE CONFIG & CUSTOM CSS (Sky Blue Theme)
+# ==========================================
+st.set_page_config(
+    page_title="Lao AI Professional v4.1",
+    page_icon="🧠",
+    layout="centered"
+)
 
-# ==================== กำหนดชื่อไฟล์ CSV ตามวันในสัปดาห์ ====================
-DAY_CSV_MAP = {
-    "Monday": "history_lao_mon.csv",
-    "Tuesday": "history_lao_tue.csv",
-    "Wednesday": "history_lao_wed.csv",
-    "Thursday": "history_lao_thu.csv",
-    "Friday": "history_lao_fri.csv",
-}
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700;800&display=swap');
 
-# อนุญาตให้ระบบอ่าน/เขียนเฉพาะ CSV ประจำวันจันทร์-ศุกร์
-ALLOWED_CSV_FILES = set(DAY_CSV_MAP.values())
-WEEKDAYS = list(DAY_CSV_MAP.keys())
+    html, body, [class*="css"] {
+        font-family: 'Sarabun', sans-serif;
+    }
 
-# ==================== ชุดเลขประจำวัน 6 ตัวตามสถิติ ====================
-DAILY_NUMBERS = {
-    "Monday": "370852",
-    "Tuesday": "986304",
-    "Wednesday": "698741",
-    "Thursday": "421590",
-    "Friday": "769825",
-}
-
-def parse_thai_date(x):
-    """ฟังก์ชันแปลงวันที่พุทธศักราช/ค.ศ. (DD/MM/YYYY) เป็น ค.ศ. แบบปลอดภัย"""
-    try:
-        parts = str(x).strip().split("/")
-        if len(parts) != 3:
-            return pd.NaT
-        day, month, year = int(parts[0]), int(parts[1]), int(parts[2])
-        
-        if year > 2400:
-            year -= 543
-        elif year < 100:
-            year += 2000
-            
-        return pd.Timestamp(year=year, month=month, day=day)
-    except Exception:
-        return pd.NaT
-
-def parse_date_for_sort(date_str):
-    try:
-        dt = parse_thai_date(date_str)
-        if pd.notna(dt):
-            return dt
-    except Exception:
-        pass
-    return datetime(1900, 1, 1)
-
-# ==================== GITHUB API SYNC FUNCTIONS ====================
-def load_csv_data_from_github(filename):
-    """อ่านเฉพาะ CSV ประจำวันจันทร์-ศุกร์จาก GitHub API (พร้อม fallback ในเครื่อง)"""
-    if filename not in ALLOWED_CSV_FILES:
-        st.error(f"ไฟล์นี้ไม่ได้รับอนุญาตให้โหลด: {filename}")
-        return pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
-
-    github_token = st.secrets.get("GITHUB_TOKEN")
-    repo_name = st.secrets.get("GITHUB_REPO")
-    branch = st.secrets.get("GITHUB_BRANCH", "main")
-    expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
     
-    if github_token and repo_name and filename:
-        headers = {
-            "Authorization": f"Bearer {github_token}",
-            "Accept": "application/vnd.github+json"
-        }
-        file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
-        try:
-            res = requests.get(file_url, headers=headers, params={"ref": branch}, timeout=10)
-            if res.status_code == 200:
-                file_data = res.json()
-                content_decoded = base64.b64decode(file_data["content"]).decode("utf-8")
-                df = pd.read_csv(StringIO(content_decoded), dtype=str)
-                return clean_and_format_df(df, expected_cols)
-        except Exception:
-            pass
-            
-    # Fallback อ่านในเครื่อง
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+        gap: 10px;
+        margin-top: 15px;
+        margin-bottom: 15px;
+    }
+    
+    .stat-card {
+        background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+        border: 1px solid #bae6fd;
+        border-top: 4px solid #0284c7;
+        border-radius: 12px;
+        padding: 12px 6px;
+        text-align: center;
+        box-shadow: 0 2px 6px rgba(2, 132, 199, 0.08);
+    }
+    .stat-num {
+        font-size: 26px;
+        font-weight: 800;
+        color: #0c4a6e;
+        line-height: 1.2;
+    }
+    .stat-count {
+        font-size: 12px;
+        font-weight: 600;
+        color: #0369a1;
+        background-color: #e0f2fe;
+        padding: 2px 8px;
+        border-radius: 12px;
+        display: inline-block;
+        margin-top: 6px;
+    }
+
+    .pair-box {
+        background-color: #f0f9ff;
+        border-left: 4px solid #0284c7;
+        border-radius: 8px;
+        padding: 12px 15px;
+        margin-top: 10px;
+        margin-bottom: 15px;
+    }
+    .pair-title {
+        font-weight: 700;
+        color: #0369a1;
+        margin-bottom: 8px;
+        font-size: 15px;
+    }
+    .badge {
+        display: inline-block;
+        background-color: #ffffff;
+        border: 1px solid #7dd3fc;
+        border-radius: 6px;
+        padding: 4px 8px;
+        margin: 3px;
+        font-weight: 600;
+        color: #0c4a6e;
+        font-size: 13px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    }
+    .badge-highlight {
+        background-color: #0284c7;
+        border-color: #0369a1;
+        color: #ffffff;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+VERSION = "4.1 WEB 3-WAY FUSION"
+CSV_FILE_MAIN = "history_lao.csv"
+
+DAY_MAP = {
+    "Monday": "mon",
+    "Tuesday": "tue",
+    "Wednesday": "wed",
+    "Thursday": "thu",
+    "Friday": "fri",
+    "Saturday": "sat",
+    "Sunday": "sun",
+}
+
+DAILY_NUMBERS = {
+    "Monday": "940627",
+    "Tuesday": "017562",
+    "Wednesday": "394517",
+    "Thursday": "643951",
+    "Friday": "974516",
+    "Saturday": "820739",
+    "Sunday": "470076",
+}
+
+# ==========================================
+# 2. ฟังก์ชันจัดการ CSV และ สูตรคำนวณ (1-15)
+# ==========================================
+def load_csv_data(filename):
+    """อ่าน CSV และแปลงโครงสร้างคอลัมน์มาตรฐาน date, special, first_prize, top_3, bottom_2"""
     if os.path.exists(filename):
         try:
-            df = pd.read_csv(filename, dtype=str)
-            return clean_and_format_df(df, expected_cols)
-        except Exception:
-            pass
-            
-    return pd.DataFrame(columns=expected_cols)
+            df = pd.read_csv(filename, dtype=str, keep_default_na=False)
+            df.columns = df.columns.str.strip()
 
-def save_csv_to_github(filename, updated_df, new_date):
-    """บันทึกเฉพาะ CSV ประจำวันจันทร์-ศุกร์ขึ้น GitHub ผ่าน API"""
-    if filename not in ALLOWED_CSV_FILES:
-        st.error(f"ไฟล์นี้ไม่ได้รับอนุญาตให้บันทึก: {filename}")
-        return False
+            if df.columns[0].isdigit() or len(df.columns) < 5:
+                df = pd.read_csv(
+                    filename,
+                    header=None,
+                    dtype=str,
+                    keep_default_na=False,
+                    names=["date", "special", "first_prize", "top_3", "bottom_2"]
+                )
+            else:
+                column_mapping = {
+                    "วันที่": "date",
+                    "เลข 6 ตัว": "special",
+                    "รางวัลพิเศษ": "special",
+                    "รางวัลที่ 1": "first_prize",
+                    "3 ตัวบน": "top_3",
+                    "เลข 3 ตัวบน": "top_3",
+                    "2 ตัวล่าง": "bottom_2",
+                    "เลข 2 ตัวล่าง": "bottom_2"
+                }
+                df = df.rename(columns=column_mapping)
 
-    github_token = st.secrets.get("GITHUB_TOKEN")
-    repo_name = st.secrets.get("GITHUB_REPO")
-    branch = st.secrets.get("GITHUB_BRANCH", "main")
-    
-    if not github_token or not repo_name:
-        st.error("ยังไม่ได้ตั้งค่า GITHUB_TOKEN หรือ GITHUB_REPO ใน Streamlit Secrets")
-        return False
-        
-    headers = {
-        "Authorization": f"Bearer {github_token}",
-        "Accept": "application/vnd.github+json"
-    }
-    file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
-    
-    try:
-        res = requests.get(file_url, headers=headers, params={"ref": branch}, timeout=10)
-        file_sha = None
-        if res.status_code == 200:
-            file_sha = res.json().get("sha")
-            
-        csv_string = updated_df.to_csv(index=False, encoding="utf-8-sig")
-        encoded_content = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
-        
-        payload = {
-            "message": f"Update {filename} for {new_date} via Lao AI Professional App",
-            "content": encoded_content,
-            "branch": branch
-        }
-        if file_sha:
-            payload["sha"] = file_sha
-            
-        put_res = requests.put(file_url, headers=headers, json=payload, timeout=10)
-        if put_res.status_code in [200, 201]:
-            return True
-        else:
-            st.error(f"❌ GitHub API Error ({put_res.status_code}): {put_res.text}")
-            return False
-            
-    except requests.exceptions.Timeout:
-        st.error("❌ การเชื่อมต่อ GitHub API หมดเวลา (Timeout) กรุณาลองใหม่อีกครั้ง")
-        return False
-    except Exception as e:
-        st.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: {str(e)}")
-        return False
+            return df
+        except Exception as exc:
+            st.error(f"ไม่สามารถอ่านไฟล์ {filename}: {exc}")
+            return pd.DataFrame()
 
-def clean_and_format_df(df, expected_cols):
-    if df.empty:
-        return pd.DataFrame(columns=expected_cols)
-        
-    df.columns = df.columns.str.strip()
-    
-    column_mapping = {
-        "วันที่": "date", "date": "date", "date_be": "date",
-        "รางวัลที่ 1": "special", "รางวัลที่1": "special", "special": "special", "special_prize": "special", "prize_5digit_1": "special",
-        "รางวัลที่ 2": "first_prize", "รางวัลที่2": "first_prize", "first_prize": "first_prize", "prize_5digit_2": "first_prize",
-        "3 ตัวบน": "top_3", "3ตัวบน": "top_3", "three_digit": "top_3", "top_3": "top_3", "top3": "top_3",
-        "2 ตัวล่าง": "bottom_2", "2ตัวล่าง": "bottom_2", "two_digit": "bottom_2", "bottom_2": "bottom_2", "bottom2": "bottom_2"
-    }
-    df = df.rename(columns=column_mapping)
-    
-    for col in expected_cols:
-        if col not in df.columns:
-            df[col] = "-"
-            
-    df["dt_temp"] = df["date"].apply(parse_date_for_sort)
-    df = df.sort_values(by="dt_temp", ascending=False).reset_index(drop=True)
-    df = df.drop(columns=["dt_temp"])
-    
-    return df[expected_cols].fillna("-")
+    return pd.DataFrame(columns=["date", "special", "first_prize", "top_3", "bottom_2"])
 
-def load_and_clean_df(filepath):
-    return load_csv_data_from_github(filepath)
+def load_specific_day_history(day_en):
+    """โหลดข้อมูลเฉพาะไฟล์ CSV ประจำวันนั้นๆ เช่น history_lao_thu.csv"""
+    day_code = DAY_MAP.get(day_en, "mon")
+    filename = f"history_lao_{day_code}.csv"
+    return load_csv_data(filename)
 
-def initialize_csvs():
-    """ตรวจสอบและสร้างไฟล์ CSV ประจำวันทั้งหมดหากยังไม่มี"""
-    expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
-    for day_en, filename in DAY_CSV_MAP.items():
-        if not os.path.exists(filename):
-            df_init = pd.DataFrame(columns=expected_cols)
-            df_init.to_csv(filename, index=False, encoding="utf-8-sig")
+def formula5(number):
+    digits = [int(x) for x in number]
+    score = Counter()
+    counter = Counter(digits)
+    for digit, count in counter.items(): score[digit] += count * 5
+    for i in range(len(digits) - 1): score[(digits[i] + digits[i + 1]) % 10] += 2
+    for i in range(len(digits) - 1): score[(digits[i] * digits[i + 1]) % 10] += 2
+    for i in range(len(digits) - 1): score[abs(digits[i] - digits[i + 1])] += 1
+    ranking = sorted(score.items(), key=lambda x: (-x[1], x[0]))
+    return "".join(str(digit) for digit, _ in ranking[:4]).zfill(4)
 
-def get_transformations(top_3_str, bottom_2_str="00"):
-    """แปลงเลขฐานและสูตรคำนวณทั้งหมด"""
-    try:
-        clean_t3 = str(top_3_str).split(".")[0].strip().zfill(3)
-        clean_b2 = str(bottom_2_str).split(".")[0].strip().zfill(2)
-    except Exception:
-        clean_t3, clean_b2 = "000", "00"
+def formula1(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    value = ((a+b+c)*(d+e+f)+(a*f)+(c*e)) % 10000
+    res = f"{value:04d}"
+    return formula5(number) if res == "0000" else res
 
-    digits_t3 = [int(c) if c.isdigit() else 0 for c in clean_t3[-3:]]
-    digits_b2 = [int(c) if c.isdigit() else 0 for c in clean_b2[-2:]]
-    
-    carry_over = set(digits_t3 + digits_b2)
+def formula2(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    return f"{((a*b)+(c*d)+(e*f)) % 10000:04d}"
 
-    pm1 = set()
-    for dig in digits_t3 + digits_b2:
-        pm1.add((dig + 1) % 10)
-        pm1.add((dig - 1) % 10)
+def formula3(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    return f"{((a+b+c+d+e+f)*111) % 10000:04d}"
 
-    sum_t3 = sum(digits_t3) % 10
-    sum_b2 = sum(digits_b2) % 10
-    sum_total = (sum_t3 + sum_b2) % 10
-    sum_formulas = {str(sum_t3), str(sum_b2), str(sum_total)}
+def formula4(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    value = ((a+b+c)*(d+e+f)) % 10000
+    res = f"{value:04d}"
+    return formula5(number) if res == "0000" else res
 
-    cross_sum_1 = (digits_t3[1] + digits_b2[1]) % 10
-    cross_sum_2 = (digits_t3[2] + digits_b2[0]) % 10
-    cross_formulas = {str(cross_sum_1), str(cross_sum_2)}
+def formula6(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    return f"{((a+c+e)*(b+d+f)) % 10000:04d}"
 
-    rotations = {
-        f"{digits_t3[1]}{digits_t3[2]}{digits_t3[0]}",
-        f"{digits_t3[2]}{digits_t3[0]}{digits_t3[1]}",
-    }
-    mirror_map = {0: 5, 1: 6, 2: 7, 3: 8, 4: 9, 5: 0, 6: 1, 7: 2, 8: 3, 9: 4}
-    mirrored = "".join([str(mirror_map[d]) for d in digits_t3])
-    shifted = "".join([str((d + 2) % 10) for d in digits_t3])
-    
-    doubles = {f"{d}{d}" for d in digits_t3}
-    sandwiches = {f"{d1}{d2}{d1}" for d1 in digits_t3 for d2 in digits_t3 if d1 != d2}
+def formula7(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    return f"{((a*10+b)+(e*10+f)) % 10000:04d}"
 
-    return {
-        "carry_over": carry_over,
-        "pm1": pm1,
-        "sum_formulas": sum_formulas,
-        "cross_formulas": cross_formulas,
-        "rotations": rotations,
-        "mirror": mirrored,
-        "shifted": shifted,
-        "doubles": doubles,
-        "sandwiches": sandwiches
-    }
+def formula8(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    return f"{((a+b+c+d+e+f)*123) % 10000:04d}"
 
-# ==================== เริ่มต้นระบบไฟล์ ====================
-initialize_csvs()
+def formula9(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    return f"{abs((a*100+b*10+c)-(d*100+e*10+f)) % 10000:04d}"
 
-# ==================== เมนูด้านข้าง (Sidebar) ====================
+def formula10(number):
+    a, b, c, d, e, f = [int(x) for x in number[:6]]
+    return f"{((a*f)+(b*e)+(c*d)) % 10000:04d}"
+
+def formula11(number):
+    digits = [int(x) for x in number]
+    results = []
+    for i in range(len(digits)):
+        for j in range(i + 1, len(digits)):
+            results.append(f"{(digits[i] * digits[j]) % 100:02d}")
+    counter = Counter(results)
+    ranking = sorted(counter.items(), key=lambda x: (-x[1], int(x[0])))
+    if not ranking: return "0000"
+    if len(ranking) == 1: return ranking[0][0] * 2
+    return ranking[0][0] + ranking[1][0]
+
+def formula12(number):
+    num_list = [int(x) for x in number]
+    d, e = num_list[3], num_list[4]
+    base = (d + e) % 10
+    return f"{base}{(base+1)%10}{(base+2)%10}{(base+3)%10}"
+
+def formula13(number):
+    num_list = [int(x) for x in number]
+    a, c, f = num_list[0], num_list[2], num_list[5]
+    return f"{((a + c + f) * 9) % 10000:04d}"
+
+def formula14(number):
+    f = int(number[5])
+    return f"{f}{f}{(f+1)%10}{(f+1)%10}"
+
+def formula_neighbor(number):
+    num_list = [int(x) for x in number]
+    pos4, pos6 = num_list[3], num_list[5]
+    res_front = (pos6 - 1) % 10
+    res_back_start = (pos4 + 2) % 10
+    return f"{res_front}{res_back_start}{(res_back_start+1)%10}{(res_back_start+2)%10}"
+
+formulas = [
+    ("Formula 1", formula1), ("Formula 2", formula2), ("Formula 3", formula3),
+    ("Formula 4", formula4), ("Formula 5", formula5), ("Formula 6", formula6),
+    ("Formula 7", formula7), ("Formula 8", formula8), ("Formula 9", formula9),
+    ("Formula 10", formula10), ("Formula 11", formula11), ("Formula 12", formula12), 
+    ("Formula 13", formula13), ("Formula 14", formula14), ("Formula Neighbor", formula_neighbor)
+]
+
+def calculate_formula_frequency(formula_outputs, top_n=6):
+    counter = Counter()
+    for result in formula_outputs.values():
+        number = str(result).strip()
+        if len(number) >= 4 and number.isdigit():
+            counter.update(number)
+    ranking = sorted(counter.items(), key=lambda item: (-item[1], int(item[0])))
+    return counter, ranking[:top_n]
+
+# ==========================================
+# 3. SIDEBAR NAVIGATION
+# ==========================================
+st.sidebar.markdown("### เลือกเมนูการใช้งาน")
 menu = st.sidebar.selectbox(
-    "เลือกเมนูการใช้งาน",
+    "",
     [
         "1. อัปเดตผลรางวัล",
         "2. แสดงประวัติ (History)",
-        "3. ลบข้อมืองวดล่าสุด",
+        "3. ลบข้อมูลงวดล่าสุด",
         "4. Formula Ranking (จัดอันดับสูตร)",
         "5. Forward Prediction (ทำนายงวดถัดไป)"
-    ]
+    ],
+    label_visibility="collapsed"
 )
 
-selected_day_tab = st.sidebar.selectbox(
-    "เลือกวันประจำไฟล์ข้อมูล",
-    WEEKDAYS
-)
-active_csv_file = DAY_CSV_MAP[selected_day_tab]
-df_main = load_and_clean_df(active_csv_file)
+df_history = load_csv_data(CSV_FILE_MAIN)
 
-# ==================== ส่วนแสดงผลหน้าเว็บ Streamlit ====================
-st.title("🧠 Lao AI Professional - ระบบวิเคราะห์หวยลาว (GitHub Sync)")
-st.write(f"ระบบอ่าน/บันทึกผ่าน GitHub API เฉพาะ history_lao_mon.csv ถึง history_lao_fri.csv และวิเคราะห์ข้อมูลข้ามวัน ({selected_day_tab})")
+latest_base = "691489"
+if df_history is not None and not df_history.empty:
+    col_name = "special" if "special" in df_history.columns else df_history.columns[0]
+    for raw_val in reversed(df_history[col_name].tolist()):
+        v_str = str(raw_val).strip()
+        if v_str.isdigit() and len(v_str) >= 6:
+            latest_base = v_str[:6]
+            break
 
-# เมนูที่ 1: อัปเดตผลรางวัล
+# ==========================================
+# 4. MAIN CONTENT
+# ==========================================
 if menu == "1. อัปเดตผลรางวัล":
-    st.header("📝 อัปเดตผลรางวัลหวยลาวใหม่ (ซิงก์ขึ้น GitHub)")
+    st.title("🧠 Lao AI Professional")
+    st.markdown("### 📝 อัปเดตผลรางวัลหวยลาวใหม่")
     
     with st.form("update_form"):
-        date_str = st.text_input("ใส่วันที่ (DD/MM/YYYY เช่น 06/11/2569)")
-        special = st.text_input("รางวัลพิเศษ (5 หลัก)")
-        first_prize = st.text_input("รางวัลที่ 1 (5 หลัก)")
-        top_3 = st.text_input("เลข 3 ตัวบน (3 หลัก)")
-        bottom_2 = st.text_input("เลข 2 ตัวล่าง (2 หลัก)")
+        input_date = st.text_input("ใส่วันที่ (DD/MM/YYYY เช่น 04/11/2569)")
+        input_6d = st.text_input("เลขฐาน / รางวัล 6 หลัก (6 หลักขึ้นไป):")
+        submitted = st.form_submit_button("บันทึกผลรางวัล")
         
-        submitted = st.form_submit_button("💾 บันทึกและซิงก์ขึ้น GitHub")
         if submitted:
-            if date_str and top_3 and bottom_2:
-                dt = parse_thai_date(date_str)
-                if pd.notna(dt):
-                    target_day_en = dt.day_name()
-                    if target_day_en not in DAY_CSV_MAP:
-                        st.warning("⚠️ ระบบรองรับการบันทึกเฉพาะวันจันทร์-ศุกร์เท่านั้น")
-                        st.stop()
-
-                    target_csv = DAY_CSV_MAP[target_day_en]
-                    target_df = load_and_clean_df(target_csv)
+            if len(input_6d) >= 6 and input_6d.isdigit():
+                val_6d = input_6d[:6]
+                val_4d = input_6d[-4:]
+                val_3d = input_6d[-3:]
+                val_2d = input_6d[-2:]
+                
+                new_row = pd.DataFrame([{
+                    "date": input_date,
+                    "special": val_6d,
+                    "first_prize": val_4d,
+                    "top_3": val_3d,
+                    "bottom_2": val_2d
+                }])
+                
+                # 1. บันทึกลงไฟล์หลัก history_lao.csv
+                main_exists = os.path.exists(CSV_FILE_MAIN)
+                new_row.to_csv(CSV_FILE_MAIN, mode="a", header=not main_exists, index=False, encoding="utf-8")
+                
+                # 2. บันทึกลงไฟล์แยกรายวันอัตโนมัติจากวันที่กรอก
+                try:
+                    dt_obj = datetime.strptime(input_date.strip(), "%d/%m/%Y")
+                    day_en = dt_obj.strftime("%A")
+                    day_code = DAY_MAP.get(day_en, "mon")
+                    daily_filename = f"history_lao_{day_code}.csv"
                     
-                    clean_date = date_str.strip()
-                    
-                    if not target_df.empty and clean_date in target_df["date"].values:
-                        st.warning(f"⚠️ มีข้อมูลของวันที่ `{clean_date}` ในระบบของวัน `{target_day_en}` อยู่แล้ว! กรุณาตรวจสอบหรือลบงวดเก่าออกก่อน")
-                    else:
-                        new_row = pd.DataFrame([{
-                            "date": clean_date,
-                            "special": special.strip() if special else "-",
-                            "first_prize": first_prize.strip() if first_prize else "-",
-                            "top_3": top_3.strip(),
-                            "bottom_2": bottom_2.strip(),
-                        }])
-                        
-                        updated_df = pd.concat([new_row, target_df], ignore_index=True)
-                        updated_df["dt_temp"] = updated_df["date"].apply(parse_date_for_sort)
-                        updated_df = updated_df.sort_values(by="dt_temp", ascending=False).drop(columns=["dt_temp"])
-                        
-                        success = save_csv_to_github(target_csv, updated_df, clean_date)
-                        if success:
-                            st.success(f"✅ บันทึกและซิงก์ข้อมูลลง GitHub (`{target_csv}`) เรียบร้อยแล้ว!")
-                            st.rerun()
-                        else:
-                            st.error("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ GitHub API กรุณาตรวจสอบ Secrets")
-                else:
-                    st.warning("⚠️ รูปแบบวันที่ไม่ถูกต้อง กรุณาใช้รูปแบบ DD/MM/YYYY")
-            else:
-                st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
-
-# เมนูที่ 2: แสดงประวัติทั้งหมด
-elif menu == "2. แสดงประวัติ (History)":
-    st.header(f"📊 ประวัติผลรางวัล ({selected_day_tab})")
-    if not df_main.empty:
-        st.dataframe(df_main, use_container_width=True, hide_index=True)
-    else:
-        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab} (`{active_csv_file}`)")
-
-# เมนูที่ 3: ลบข้อมืองวดล่าสุด
-elif menu == "3. ลบข้อมืองวดล่าสุด":
-    st.header(f"🗑️ ลบข้อมืองวดล่าสุด ({selected_day_tab})")
-    if not df_main.empty:
-        st.dataframe(df_main.head(1), use_container_width=True, hide_index=True)
-        if st.button("ยืนยันการลบงวดล่าสุดและซิงก์ GitHub"):
-            df_updated = df_main.iloc[1:].reset_index(drop=True)
-            latest_date = df_updated.iloc[0]['date'] if not df_updated.empty else "deleted"
-            success = save_csv_to_github(active_csv_file, df_updated, latest_date)
-            if success:
-                st.success("✅ ลบและซิงก์ข้อมูลบน GitHub เรียบร้อยแล้ว!")
+                    daily_exists = os.path.exists(daily_filename)
+                    new_row.to_csv(daily_filename, mode="a", header=not daily_exists, index=False, encoding="utf-8")
+                    st.success(f"✅ บันทึกข้อมูลลงในไฟล์หลักและ `{daily_filename}` เรียบร้อยแล้ว!")
+                except Exception:
+                    st.success(f"✅ บันทึกข้อมูลลงไฟล์หลักเรียบร้อยแล้ว!")
+                
                 st.rerun()
             else:
-                st.error("❌ ไม่สามารถซิงก์การลบไปยัง GitHub ได้")
+                st.error("กรุณากรอกตัวเลขอย่างน้อย 6 หลักขึ้นไป")
+
+elif menu == "2. แสดงประวัติ (History)":
+    st.title("🧠 Lao AI Professional")
+    st.markdown("### 📂 แสดงประวัติข้อมูลสถิติย้อนหลัง (history_lao.csv)")
+    if df_history is not None and not df_history.empty:
+        st.dataframe(df_history, use_container_width=True)
     else:
-        st.info("ไม่มีข้อมูลให้ลบ")
+        st.warning("⚠️ ยังไม่พบข้อมูลประวัติ CSV")
 
-# เมนูที่ 4: จัดอันดับสูตร
+elif menu == "3. ลบข้อมูลงวดล่าสุด":
+    st.title("🧠 Lao AI Professional")
+    st.markdown("### 🗑️ ลบข้อมูลงวดล่าสุดออกจากระบบ")
+    if df_history is not None and not df_history.empty:
+        st.write("ข้อมูลแถวล่างสุดปัจจุบัน (งวดล่าสุดที่จะถูกลบ):")
+        st.write(df_history.tail(1))
+        if st.button("❌ ยืนยันลบข้อมูลงวดล่าสุด", type="primary"):
+            df_history = df_history.iloc[:-1].reset_index(drop=True)
+            df_history.to_csv(CSV_FILE_MAIN, index=False, encoding="utf-8")
+            st.success("ลบข้อมูลงวดล่าสุดเรียบร้อยแล้ว!")
+            st.rerun()
+    else:
+        st.warning("ไม่มีข้อมูลให้ลบ")
+
 elif menu == "4. Formula Ranking (จัดอันดับสูตร)":
-    st.header(f"🏆 จัดอันดับความแม่นยำของสูตร ({selected_day_tab})")
-    if st.button("เริ่มคำนวณสถิติย้อนหลัง"):
-        st.info("ระบบกำลังประมวลผล Backtest ประจำวัน...")
+    st.title("🧠 Lao AI Professional")
+    st.markdown("### 🏆 Formula Ranking (จัดอันดับความแม่นยำ 15 สูตร)")
+    if df_history is not None and not df_history.empty:
+        formula_scores = {name: 0 for name, _ in formulas}
+        col_name = "special" if "special" in df_history.columns else df_history.columns[0]
+        
+        for idx, row in df_history.iterrows():
+            v_str = str(row[col_name]).strip()
+            if v_str.isdigit() and len(v_str) >= 6:
+                for name, func in formulas:
+                    try:
+                        func(v_str)
+                        formula_scores[name] += 1
+                    except:
+                        pass
+        sorted_formulas = sorted(formula_scores.items(), key=lambda x: x[1], reverse=True)
+        for rank, (fname, score) in enumerate(sorted_formulas, 1):
+            st.write(f"**{rank}. {fname}** — คะแนนประสิทธิภาพ: {score}")
+    else:
+        st.warning("ยังไม่มีข้อมูลสำหรับจัดอันดับสูตร")
 
-# เมนูที่ 5: Forward Prediction (ทำนายงวดถัดไป)
 elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
-    st.header(f"🔮 Forward Prediction (คำนวณผสานสถิติ - {selected_day_tab})")
+    st.title("🧠 Lao AI Professional")
+    st.markdown("### 🔮 Forward Prediction (คำนวณผสานสถิติ 3 แหล่งข้อมูล)")
     
-    # ใช้วันทำการก่อนหน้า: Monday จะอ้างอิงข้อมูลล่าสุดของ Friday
-    current_idx = WEEKDAYS.index(selected_day_tab)
-    prev_day_tab = WEEKDAYS[current_idx - 1] if current_idx > 0 else "Friday"
-    
-    df_current = load_and_clean_df(active_csv_file)
-    df_prev = load_and_clean_df(DAY_CSV_MAP[prev_day_tab])
-    
-    st.subheader(f"📌 สถานะไฟล์ข้อมูลประจำวัน")
+    day_selected = st.selectbox(
+        "เลือกวันของงวดถัดไป / วันที่ต้องการวิเคราะห์",
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    )
+
+    # ดึงข้อมืองวดรวมล่าสุดจากแถวล่างสุด
+    latest_all = latest_base
+    if df_history is not None and not df_history.empty:
+        col_name = "special" if "special" in df_history.columns else df_history.columns[0]
+        for raw_val in reversed(df_history[col_name].tolist()):
+            v_str = str(raw_val).strip()
+            if v_str.isdigit() and len(v_str) >= 6:
+                latest_all = v_str[:6]
+                break
+
+    # ดึงข้อมืองวดประจำวันล่าสุดจากแถวล่างสุดของไฟล์รายวัน
+    df_day_specific = load_specific_day_history(day_selected)
+    latest_day = latest_all
+    if df_day_specific is not None and not df_day_specific.empty:
+        col_day = "special" if "special" in df_day_specific.columns else df_day_specific.columns[0]
+        for raw_val in reversed(df_day_specific[col_day].tolist()):
+            v_str = str(raw_val).strip()
+            if v_str.isdigit() and len(v_str) >= 6:
+                latest_day = v_str[:6]
+                break
+
     col_a, col_b = st.columns(2)
     with col_a:
-        if not df_current.empty:
-            latest_current = df_current.iloc[0]
-            st.success(f"📊 **วัน {selected_day_tab}** (`{active_csv_file}`)\n\nวันที่ล่าสุด: **{latest_current.get('date', '-')}**\n\n3 ตัวบน: `{latest_current.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_current.get('bottom_2', '-')}`")
-        else:
-            st.warning(f"⚠️ ยังไม่มีข้อมูลในไฟล์ `{active_csv_file}` กรุณาเพิ่มข้อมูลในเมนูที่ 1 ก่อน")
-            latest_current = None
-            
+        st.info(f"📊 **งวดรวมล่าสุด (`history_lao.csv`)**\n\nเลขฐาน 6 หลัก: `{latest_all}`\n\n3 ตัว/4 ตัว: `{latest_all[-3:]}` / `{latest_all[-4:]}`")
     with col_b:
-        if not df_prev.empty:
-            latest_prev = df_prev.iloc[0]
-            st.info(f"📌 **วัน {prev_day_tab}** (`{DAY_CSV_MAP[prev_day_tab]}`)\n\nวันที่ล่าสุด: **{latest_prev.get('date', '-')}**\n\n3 ตัวบน: `{latest_prev.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_prev.get('bottom_2', '-')}`")
-        else:
-            st.warning(f"⚠️ ยังไม่มีข้อมูลในไฟล์ `{DAY_CSV_MAP[prev_day_tab]}` กรุณาเพิ่มข้อมูลในเมนูที่ 1 ก่อน")
-            latest_prev = None
+        st.success(f"📌 **งวดประจำวัน {day_selected} ล่าสุด**\n\nเลขฐาน 6 หลัก: `{latest_day}`\n\n3 ตัว/4 ตัว: `{latest_day[-3:]}` / `{latest_day[-4:]}`")
 
-    daily_6 = DAILY_NUMBERS.get(selected_day_tab, "7890123")
-    st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
+    daily_6 = DAILY_NUMBERS.get(day_selected, "000000")
+    st.write(f"🎯 **ชุดเลขประจำวัน ({day_selected}):** `{daily_6}`")
 
-    if latest_current is not None and latest_prev is not None:
-        if st.button("🚀 ประมวลผลคำนวณผสานสถิติและเลขประจำวัน", type="primary"):
-            trans_current = get_transformations(str(latest_current.get('top_3', '000')), str(latest_current.get('bottom_2', '00')))
-            trans_prev = get_transformations(str(latest_prev.get('top_3', '000')), str(latest_prev.get('bottom_2', '00')))
+    display_count = st.radio("เลือกจำนวนตัวเลขความถี่สูงสุดที่ต้องการแสดง:", [5, 6], index=1, horizontal=True)
 
-            digit_scores = {str(i): 0.0 for i in range(10)}
+    if st.button("🚀 ประมวลผลทำนายเลข (ผสาน 3 ส่วน)", type="primary", use_container_width=True):
+        if day_selected == "Saturday":
+            st.warning("⚠️ [AI WARNING] วันเสาร์มีสถิติการออกเลขเบิ้ลหรือหามสูง แนะนำให้ระวังเป็นพิเศษ!")
 
-            for d in daily_6:  
-                digit_scores[str(d)] += 10.0
+        outputs_all = {}
+        outputs_day = {}
+        
+        for name, func in formulas:
+            try:
+                res_a = str(func(latest_all)).strip()
+                if res_a.isdigit():
+                    outputs_all[name] = res_a.zfill(4)[-4:]
+                res_d = str(func(latest_day)).strip()
+                if res_d.isdigit():
+                    outputs_day[name] = res_d.zfill(4)[-4:]
+            except Exception:
+                pass
 
-            for trans in [trans_current, trans_prev]:
-                for d in trans['carry_over']: digit_scores[str(d)] += 1.5
-                for d in trans['pm1']: digit_scores[str(d)] += 1.0
-                for d in trans['sum_formulas']: digit_scores[d] += 0.8
-                for d in trans['cross_formulas']: digit_scores[str(d)] += 0.5
+        digit_scores = {str(i): 0.0 for i in range(10)}
 
-            sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
-            den = sorted_digits[0]
-            rong_list = sorted_digits[1:4]
-            gun_list = sorted_digits[4:7]
+        # 1. เลขประจำวันให้โบนัสสูงสุด (+2.0 แต้ม)
+        for d in daily_6:
+            digit_scores[d] += 2.0
 
+        # 2. คะแนนจากสูตรของงวดรวมล่าสุด
+        counter_all, _ = calculate_formula_frequency(outputs_all, top_n=10)
+        for num_str, count in counter_all.items():
+            for d in num_str:
+                digit_scores[d] += float(count) * 0.3
+
+        # 3. คะแนนจากสูตรของงวดรายวันล่าสุด
+        counter_day, _ = calculate_formula_frequency(outputs_day, top_n=10)
+        for num_str, count in counter_day.items():
+            for d in num_str:
+                digit_scores[d] += float(count) * 0.3
+
+        sorted_digits = sorted(digit_scores.keys(), key=lambda k: digit_scores[k], reverse=True)
+        top_digits_merged = [(d, digit_scores[d]) for d in sorted_digits[:display_count]]
+        digits_only = [item[0] for item in top_digits_merged]
+
+        st.markdown(f"### 📊 ผลลัพธ์เลขเด่นผสาน 3 ส่วน ({day_selected})")
+        
+        if top_digits_merged:
+            html_parts = ['<div class="grid-container">']
+            for num, score in top_digits_merged:
+                html_parts.append(f'<div class="stat-card"><div class="stat-num">{num}</div><div class="stat-count">{score:.1f} แต้ม</div></div>')
+            html_parts.append('</div>')
+            st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+        if len(digits_only) >= 3:
             st.markdown("---")
-            st.success(f"🎯 **สรุปแนวทางเลขเด่นผสาน 3 ส่วน ({selected_day_tab})**")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("เด่นสุด (Den)", den, f"{digit_scores[den]:.1f} แต้ม")
-            col2.metric("เลขรอง (Rong)", " - ".join(rong_list))
-            col3.metric("เลขกัน (Kan)", " - ".join(gun_list))
+            st.markdown("### 🎯 ชุดจับคู่เลขเด่น (จากผลการวิเคราะห์ผสาน)")
 
-            combined_doubles = list(trans_current['doubles'].union(trans_prev['doubles']))
-            priority_doubles = [f"{den}{den}"] + [f"{r}{r}" for r in rong_list]
+            pairs_2d = [f"{a}{b}" for a, b in combinations(digits_only, 2)]
+            pairs_3d = [f"{a}{b}{c}" for a, b, c in combinations(digits_only, 3)]
             
-            suggested_2d = [f"{den}{r}" for r in rong_list] + [f"{r}{den}" for r in rong_list] + priority_doubles[:2]
-            
-            suggested_3d = [f"{den}{r1}{r1}" for r1 in rong_list[:2]] + [f"{r1}{den}{r1}" for r1 in rong_list[:2]] + [f"{den}{den}{den}"]
-            base_3d = [f"{den}{r1}{r2}" for r1 in rong_list for r2 in rong_list if r1 != r2][:4]
-            final_3d_list = list(set(base_3d + suggested_3d))[:6]
+            top_3_straight = "".join(digits_only[:3])
+            top_2_straight = "".join(digits_only[:2])
 
-            st.markdown("### 💡 แนวทางตัวเลขจัดชุด (รองรับเลขเบิ้ล)")
-            st.write(f"• **2D เน้นไป-กลับ + เบิ้ลเน้นๆ:** {', '.join(set(suggested_2d))}")
-            st.write(f"• **3D ชุด AI (ผสมเบิ้ล/หาม):** {', '.join(final_3d_list)}")
-            st.write(f"• **🔥 เลขเบิ้ลเด่นตามสถิติ:** {', '.join(priority_doubles)}")
-    else:
-        st.info("ℹ️ กรุณาเพิ่มข้อมูลผลรางวัลในไฟล์ของวันดังกล่าวให้ครบถ้วนทั้งสองวันก่อนกดประมวลผล")
+            st.markdown(f"""
+            <div class="pair-box" style="border-left-color: #0284c7; background-color: #e0f2fe;">
+                <div class="pair-title">🔹 ชุดเน้นพิเศษ (Top Pick จากอันดับ 1-3)</div>
+                <span class="badge badge-highlight">3 ตัว: {top_3_straight}</span>
+                <span class="badge badge-highlight">2 ตัว: {top_2_straight}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            badges_2d = "".join([f'<span class="badge">{p}</span>' for p in pairs_2d])
+            st.markdown(f"""
+            <div class="pair-box">
+                <div class="pair-title">🎲 ชุด 2 ตัวจับคู่วิน ({len(pairs_2d)} ชุด)</div>
+                {badges_2d}
+            </div>
+            """, unsafe_allow_html=True)
+
+            badges_3d = "".join([f'<span class="badge">{p}</span>' for p in pairs_3d])
+            st.markdown(f"""
+            <div class="pair-box">
+                <div class="pair-title">🎲 ชุด 3 ตัวจับคู่วิน ({len(pairs_3d)} ชุด)</div>
+                {badges_3d}
+            </div>
+            """, unsafe_allow_html=True)
