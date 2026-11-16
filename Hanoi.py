@@ -158,22 +158,58 @@ def get_transformations(top_3_str, bottom_2_str="00"):
 
 
 def daily_number_for_day(day, history=None):
-    base = DEFAULT_DAILY_NUMBERS.get(day, "000000")
-    if history is None or len(history) < MIN_HISTORY_FOR_DYNAMIC_WEIGHT:
-        return base
+    """
+    สร้าง Daily Number แยกตามวันจาก 30 งวดล่าสุดของวันนั้นเท่านั้น
+    ใช้ 3 ตัวบน + 2 ตัวล่าง และผสาน Frequency, Position, Recency
+    """
+    if history is None or history.empty:
+        return "000000"
 
-    recent = history.tail(min(RECENT_WINDOW, len(history)))
+    day_history = history.copy()
+    if "weekday_en" not in day_history.columns:
+        if "dt" in day_history.columns:
+            day_history["weekday_en"] = day_history["dt"].dt.day_name()
+        else:
+            return "000000"
+
+    day_history = day_history[day_history["weekday_en"] == day].copy()
+    if day_history.empty:
+        return "000000"
+
+    if "dt" in day_history.columns:
+        day_history = day_history.sort_values("dt", ascending=False)
+    recent = day_history.head(RECENT_WINDOW)
+
     freq = Counter()
-    for _, row in recent.iterrows():
-        freq.update(str(row["top_3"]))
-        freq.update(str(row["bottom_2"]))
+    recency = Counter()
+    position_counts = {pos: Counter() for pos in range(5)}
 
-    score = {str(i): float(freq[str(i)]) for i in range(10)}
-    for d in base:
-        score[d] += 1.5
+    for age, (_, row) in enumerate(recent.iterrows()):
+        digits = zfill_num(row.get("top_3", ""), 3) + zfill_num(row.get("bottom_2", ""), 2)
+        decay = 0.90 ** age
+        for pos, char in enumerate(digits):
+            freq[char] += 1
+            recency[char] += decay
+            position_counts[pos][char] += 1
 
-    ordered = sorted(score, key=lambda d: (-score[d], d))
-    return "".join(ordered[:6])
+    max_freq = max(freq.values()) if freq else 1
+    max_recency = max(recency.values()) if recency else 1
+
+    scores = {}
+    for digit in "0123456789":
+        pos_scores = []
+        for pos in range(5):
+            max_at_pos = max(position_counts[pos].values()) if position_counts[pos] else 1
+            pos_scores.append(position_counts[pos][digit] / max_at_pos)
+        position_score = sum(pos_scores) / 5
+        scores[digit] = (
+            0.40 * (freq[digit] / max_freq)
+            + 0.25 * position_score
+            + 0.35 * (recency[digit] / max_recency)
+        )
+
+    ranked = sorted("0123456789", key=lambda d: (-scores[d], -freq[d], -recency[d], d))
+    return "".join(ranked[:6])
 
 
 def formula_candidates(base_t3, base_b2, next_day, history=None):
@@ -328,7 +364,7 @@ def digit_scores(df, next_day):
     
     # เพิ่มน้ำหนักให้สูตร Daily 6-Digit ตามวันที่เลือก
     if "Daily 6-Digit" in weights:
-        weights["Daily 6-Digit"] *= 2.5
+        weights["Daily 6-Digit"] *= 3.5
 
     scores = {str(i): 0.0 for i in range(10)}
 
@@ -358,7 +394,7 @@ def generate_prediction(df, next_day):
     # เพิ่มโบนัสคะแนนให้เลขประจำวันของแต่ละวัน เพื่อให้ชุดเจาะเปลี่ยนตามวัน
     for d in daily:
         if d in scores:
-            scores[d] += 5.0
+            scores[d] += 8.0
 
     ordered = sorted(scores, key=lambda d: (-scores[d], d))
     den = ordered[0]
@@ -406,7 +442,7 @@ def main():
     initialize_csv()
 
     st.title("🎯 HANOI AI PROFESSIONAL v2.0")
-    st.caption("Dynamic Backtest + Formula Accuracy + Weighted Prediction")
+    st.caption("Weekday-specific Dynamic Daily Number + Backtest + Weighted Prediction")
 
     with st.sidebar:
         st.header("📁 จัดการฐานข้อมูล (CSV)")
@@ -641,15 +677,14 @@ def main():
         for day in DAYS_ORDER:
             daily_rows.append({
                 "Day": day,
-                "Base Daily (ค่าตั้งต้น)": DEFAULT_DAILY_NUMBERS[day],
-                "Active Daily (ใช้งานจริง)": daily_number_for_day(day, df_asc),
+                "Daily Number (คำนวณจากวันนั้น)": daily_number_for_day(day, df_asc),
             })
         st.table(pd.DataFrame(daily_rows))
 
         if len(df_asc) >= MIN_HISTORY_FOR_DYNAMIC_WEIGHT:
-            st.success(f"✅ ระบบกำลังใช้โหมด **Dynamic Daily** (คำนวณจากสถิติ {min(RECENT_WINDOW, len(df_asc))} งวดล่าสุดผสมกับค่าตั้งต้น)")
+            st.success(f"✅ ระบบคำนวณ Daily Number แยกตามวัน จาก 3 ตัวบน + 2 ตัวล่าง โดยใช้ไม่เกิน {RECENT_WINDOW} งวดล่าสุดของวันนั้น")
         else:
-            st.info(f"ℹ️ ขณะนี้มีข้อมูล {len(df_asc)} งวด ระบบจะใช้ค่าตั้งต้น จนกว่าจะมีข้อมูลครบ {MIN_HISTORY_FOR_DYNAMIC_WEIGHT} งวดขึ้นไป")
+            st.info("ℹ️ ระบบใช้ข้อมูลที่มีอยู่ของแต่ละวัน หากยังมีไม่ครบ 30 งวด จะแสดงผลจากจำนวนงวดที่มีจริง")
 
 
 if __name__ == "__main__":
