@@ -390,8 +390,8 @@ def generate_prediction(df, next_day):
 
     latest = df.iloc[-1]
     scores, weights, daily = digit_scores(df, next_day)
-    
-    # เพิ่มโบนัสคะแนนให้เลขประจำวันของแต่ละวัน เพื่อให้ชุดเจาะเปลี่ยนตามวัน
+
+    # Daily Number contributes to the ranking before Main / Secondary / Backup
     for d in daily:
         if d in scores:
             scores[d] += 8.0
@@ -401,23 +401,51 @@ def generate_prediction(df, next_day):
     rong = ordered[1:4]
     kan = ordered[4:7]
 
+    # All number sets below are derived from the ranked Main / Secondary / Backup digits.
+    # Keep the priority order and remove duplicates.
+    core_digits = list(dict.fromkeys([den] + rong + kan))
+    support_digits = list(dict.fromkeys(rong + kan))
+
+    # 2D: pair Main with every Secondary / Backup digit, both straight and reversed.
     pairs = []
-    for r in rong:
-        pairs.extend([den + r, r + den])
+    for digit in support_digits:
+        pairs.extend([den + digit, digit + den])
     pairs = list(dict.fromkeys(pairs))
 
-    top4 = ordered[:4]
-    triples = []
-    for a in top4:
-        for b in top4:
-            for c in top4:
-                if len({a, b, c}) >= 2:
-                    triples.append(a + b + c)
-    triples = sorted(set(triples), key=lambda x: -(scores[x[0]] + scores[x[1]] + scores[x[2]]))[:12]
+    # Doubles: repeat each digit in the Main / Secondary / Backup pool.
+    doubles = [digit * 2 for digit in core_digits]
 
-    doubles = [d + d for d in ordered[:4]]
-    sandwiches = [a + b + a for a in ordered[:4] for b in ordered[:4] if a != b]
-    sandwiches = sandwiches[:8]
+    # 3D AI Top 10: build permutations from the same ranked digit pool.
+    # Score each candidate by the combined strength of its three digits.
+    triple_candidates = set()
+    for a in core_digits:
+        for b in core_digits:
+            for c in core_digits:
+                if len({a, b, c}) >= 2:
+                    triple_candidates.add(a + b + c)
+
+    triples = sorted(
+        triple_candidates,
+        key=lambda number: (
+            -(scores[number[0]] + scores[number[1]] + scores[number[2]]),
+            number
+        )
+    )[:10]
+
+    # Sandwiches: ABA patterns formed only from Main / Secondary / Backup digits.
+    sandwich_candidates = {
+        a + b + a
+        for a in core_digits
+        for b in core_digits
+        if a != b
+    }
+    sandwiches = sorted(
+        sandwich_candidates,
+        key=lambda number: (
+            -(scores[number[0]] * 2 + scores[number[1]]),
+            number
+        )
+    )[:8]
 
     return {
         "latest": latest,
