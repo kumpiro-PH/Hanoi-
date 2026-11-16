@@ -1,4 +1,4 @@
-# app.py - Hanoi AI Professional (GitHub API Sync & Cross-Day Fusion - Mon-Sun CSV Version)
+# app.py - Lao AI Professional (GitHub API Sync & Cross-Day Fusion - Day-by-Day CSV Version)
 import os
 import streamlit as st
 import pandas as pd
@@ -8,22 +8,22 @@ import requests
 from io import StringIO
 
 # ==================== ตั้งค่าหน้าเว็บ ====================
-st.set_page_config(page_title="Hanoi AI Professional", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="Lao AI Professional", page_icon="🧠", layout="wide")
 
-# ==================== กำหนดชื่อไฟล์ CSV ตามวันในสัปดาห์ (ยกเลิกไฟล์ lao) ====================
+# ==================== กำหนดชื่อไฟล์ CSV ตามวันในสัปดาห์ ====================
 DAY_CSV_MAP = {
-    "Monday": "history_hanoi_mon.csv",
-    "Tuesday": "history_hanoi_tue.csv",
-    "Wednesday": "history_hanoi_wed.csv",
-    "Thursday": "history_hanoi_thu.csv",
-    "Friday": "history_hanoi_fri.csv",
-    "Saturday": "history_hanoi_sat.csv",
-    "Sunday": "history_hanoi_sun.csv",
+    "Monday": "history_lao_mon.csv",
+    "Tuesday": "history_lao_tue.csv",
+    "Wednesday": "history_lao_wed.csv",
+    "Thursday": "history_lao_thu.csv",
+    "Friday": "history_lao_fri.csv",
+    "Saturday": "history_lao_sat.csv",
+    "Sunday": "history_lao_sun.csv",
 }
 
 # ==================== ชุดเลขประจำวัน 6 ตัวตามสถิติ ====================
 DAILY_NUMBERS = {
-    "Monday": "459781",
+    "Monday": "370852",
     "Tuesday": "986304",
     "Wednesday": "698741",
     "Thursday": "421590",
@@ -60,7 +60,7 @@ def parse_date_for_sort(date_str):
 
 # ==================== GITHUB API SYNC FUNCTIONS ====================
 def load_csv_data_from_github(filename):
-    """อ่าน CSV จาก GitHub API (พร้อม fallback มาอ่านในเครื่อง)"""
+    """อ่าน CSV จาก GitHub API ประจำวัน (พร้อม fallback มาอ่านในเครื่อง)"""
     github_token = st.secrets.get("GITHUB_TOKEN")
     repo_name = st.secrets.get("GITHUB_REPO")
     branch = st.secrets.get("GITHUB_BRANCH", "main")
@@ -93,7 +93,7 @@ def load_csv_data_from_github(filename):
     return pd.DataFrame(columns=expected_cols)
 
 def save_csv_to_github(filename, updated_df, new_date):
-    """บันทึกและซิงก์ข้อมูล CSV ตรงขึ้น GitHub ผ่าน API อัตโนมัติ"""
+    """บันทึกและซิงก์ข้อมูล CSV ประจำวันตรงขึ้น GitHub ผ่าน API อัตโนมัติ"""
     github_token = st.secrets.get("GITHUB_TOKEN")
     repo_name = st.secrets.get("GITHUB_REPO")
     branch = st.secrets.get("GITHUB_BRANCH", "main")
@@ -109,19 +109,16 @@ def save_csv_to_github(filename, updated_df, new_date):
     file_url = f"https://api.github.com/repos/{repo_name}/contents/{filename}"
     
     try:
-        # 1. ดึงไฟล์เดิมจาก GitHub เพื่อเอา SHA
         res = requests.get(file_url, headers=headers, params={"ref": branch}, timeout=10)
         file_sha = None
         if res.status_code == 200:
             file_sha = res.json().get("sha")
             
-        # 2. แปลงเป็น CSV string และเข้ารหัส Base64
         csv_string = updated_df.to_csv(index=False, encoding="utf-8-sig")
         encoded_content = base64.b64encode(csv_string.encode("utf-8")).decode("utf-8")
         
-        # 3. ส่งคำขอ PUT ไปที่ GitHub API
         payload = {
-            "message": f"Update {filename} for {new_date} via Streamlit App",
+            "message": f"Update {filename} for {new_date} via Lao AI Professional App",
             "content": encoded_content,
             "branch": branch
         }
@@ -171,7 +168,7 @@ def load_and_clean_df(filepath):
     return load_csv_data_from_github(filepath)
 
 def initialize_csvs():
-    """ตรวจสอบและสร้างไฟล์ CSV ประจำวันเริ่มต้นหากยังไม่มี"""
+    """ตรวจสอบและสร้างไฟล์ CSV ประจำวันทั้งหมดหากยังไม่มี"""
     expected_cols = ["date", "special", "first_prize", "top_3", "bottom_2"]
     for day_en, filename in DAY_CSV_MAP.items():
         if not os.path.exists(filename):
@@ -251,12 +248,12 @@ active_csv_file = DAY_CSV_MAP[selected_day_tab]
 df_main = load_and_clean_df(active_csv_file)
 
 # ==================== ส่วนแสดงผลหน้าเว็บ Streamlit ====================
-st.title("🎯 Hanoi AI Professional - ระบบวิเคราะห์หวยฮานอย (GitHub Sync)")
+st.title("🧠 Lao AI Professional - ระบบวิเคราะห์หวยลาว (GitHub Sync)")
 st.write(f"ระบบวิเคราะห์สถิติผสานข้อมูลข้ามวันพร้อมซิงก์ GitHub อัตโนมัติ ({selected_day_tab})")
 
 # เมนูที่ 1: อัปเดตผลรางวัล
 if menu == "1. อัปเดตผลรางวัล":
-    st.header("📝 อัปเดตผลรางวัลหวยฮานอยใหม่ (ซิงก์ขึ้น GitHub)")
+    st.header("📝 อัปเดตผลรางวัลหวยลาวใหม่ (ซิงก์ขึ้น GitHub)")
     
     with st.form("update_form"):
         date_str = st.text_input("ใส่วันที่ (DD/MM/YYYY เช่น 06/11/2569)")
@@ -271,7 +268,7 @@ if menu == "1. อัปเดตผลรางวัล":
                 dt = parse_thai_date(date_str)
                 if pd.notna(dt):
                     target_day_en = dt.day_name()
-                    target_csv = DAY_CSV_MAP.get(target_day_en, "history_hanoi_sat.csv")
+                    target_csv = DAY_CSV_MAP.get(target_day_en, "history_lao_sat.csv")
                     target_df = load_and_clean_df(target_csv)
                     
                     clean_date = date_str.strip()
@@ -308,7 +305,7 @@ elif menu == "2. แสดงประวัติ (History)":
     if not df_main.empty:
         st.dataframe(df_main, use_container_width=True, hide_index=True)
     else:
-        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab}")
+        st.info(f"ยังไม่มีข้อมูลในไฟล์ของวัน {selected_day_tab} (`{active_csv_file}`)")
 
 # เมนูที่ 3: ลบข้อมืองวดล่าสุด
 elif menu == "3. ลบข้อมืองวดล่าสุด":
@@ -344,21 +341,28 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
     df_current = load_and_clean_df(active_csv_file)
     df_prev = load_and_clean_df(DAY_CSV_MAP[prev_day_tab])
     
-    if not df_current.empty and not df_prev.empty:
-        latest_current = df_current.iloc[0]
-        latest_prev = df_prev.iloc[0]
+    st.subheader(f"📌 สถานะไฟล์ข้อมูลประจำวัน")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if not df_current.empty:
+            latest_current = df_current.iloc[0]
+            st.success(f"📊 **วัน {selected_day_tab}** (`{active_csv_file}`)\n\nวันที่ล่าสุด: **{latest_current.get('date', '-')}**\n\n3 ตัวบน: `{latest_current.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_current.get('bottom_2', '-')}`")
+        else:
+            st.warning(f"⚠️ ยังไม่มีข้อมูลในไฟล์ `{active_csv_file}` กรุณาเพิ่มข้อมูลในเมนูที่ 1 ก่อน")
+            latest_current = None
+            
+    with col_b:
+        if not df_prev.empty:
+            latest_prev = df_prev.iloc[0]
+            st.info(f"📌 **วัน {prev_day_tab}** (`{DAY_CSV_MAP[prev_day_tab]}`)\n\nวันที่ล่าสุด: **{latest_prev.get('date', '-')}**\n\n3 ตัวบน: `{latest_prev.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_prev.get('bottom_2', '-')}`")
+        else:
+            st.warning(f"⚠️ ยังไม่มีข้อมูลในไฟล์ `{DAY_CSV_MAP[prev_day_tab]}` กรุณาเพิ่มข้อมูลในเมนูที่ 1 ก่อน")
+            latest_prev = None
 
-        st.subheader(f"📌 ข้อมูลงวดล่าสุดที่นำมาคำนวณ ({selected_day_tab} + {prev_day_tab})")
-        col_a, col_b = st.columns(2)
-        
-        with col_a:
-            st.info(f"📊 **งวดล่าสุดประจำวัน {selected_day_tab}** (`{active_csv_file}`)\n\nวันที่: **{latest_current.get('date', '-')}**\n\n3 ตัวบน: `{latest_current.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_current.get('bottom_2', '-')}`")
-        with col_b:
-            st.success(f"📌 **งวดล่าสุดประจำวัน {prev_day_tab}** (`{DAY_CSV_MAP[prev_day_tab]}`)\n\nวันที่: **{latest_prev.get('date', '-')}**\n\n3 ตัวบน: `{latest_prev.get('top_3', '-')}` | 2 ตัวล่าง: `{latest_prev.get('bottom_2', '-')}`")
+    daily_6 = DAILY_NUMBERS.get(selected_day_tab, "7890123")
+    st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
 
-        daily_6 = DAILY_NUMBERS.get(selected_day_tab, "7890123")
-        st.write(f"🎯 **ชุดเลขประจำวัน ({selected_day_tab}):** `{daily_6}`")
-
+    if latest_current is not None and latest_prev is not None:
         if st.button("🚀 ประมวลผลคำนวณผสานสถิติและเลขประจำวัน", type="primary"):
             trans_current = get_transformations(str(latest_current.get('top_3', '000')), str(latest_current.get('bottom_2', '00')))
             trans_prev = get_transformations(str(latest_prev.get('top_3', '000')), str(latest_prev.get('bottom_2', '00')))
@@ -400,4 +404,4 @@ elif menu == "5. Forward Prediction (ทำนายงวดถัดไป)":
             st.write(f"• **3D ชุด AI (ผสมเบิ้ล/หาม):** {', '.join(final_3d_list)}")
             st.write(f"• **🔥 เลขเบิ้ลเด่นตามสถิติ:** {', '.join(priority_doubles)}")
     else:
-        st.warning(f"⚠️ ข้อมูลในไฟล์ประวัติสำหรับวัน {selected_day_tab} หรือ {prev_day_tab} ไม่เพียงพอสำหรับการคำนวณ")
+        st.info("ℹ️ กรุณาเพิ่มข้อมูลผลรางวัลในไฟล์ของวันดังกล่าวให้ครบถ้วนทั้งสองวันก่อนกดประมวลผล")
