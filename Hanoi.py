@@ -415,14 +415,20 @@ def generate_prediction(df, next_day):
     # Doubles: repeat each digit in the Main / Secondary / Backup pool.
     doubles = [digit * 2 for digit in core_digits]
 
-    # 3D AI Top 10: build permutations from the same ranked digit pool.
-    # Score each candidate by the combined strength of its three digits.
+    # 3D AI Top 10: each candidate must contain exactly:
+    # 1 Main Digit + 1 Secondary digit + 1 Backup digit.
+    # Generate all six positional arrangements, then rank by combined score.
     triple_candidates = set()
-    for a in core_digits:
-        for b in core_digits:
-            for c in core_digits:
-                if len({a, b, c}) >= 2:
-                    triple_candidates.add(a + b + c)
+    for secondary_digit in rong:
+        for backup_digit in kan:
+            triple_candidates.update({
+                den + secondary_digit + backup_digit,
+                den + backup_digit + secondary_digit,
+                secondary_digit + den + backup_digit,
+                secondary_digit + backup_digit + den,
+                backup_digit + den + secondary_digit,
+                backup_digit + secondary_digit + den,
+            })
 
     triples = sorted(
         triple_candidates,
