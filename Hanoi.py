@@ -475,7 +475,7 @@ def generate_prediction(df, next_day):
 def main():
     initialize_csv()
 
-    st.title("🎯 HANOI AI PROFESSIONAL v2.0")
+    st.title("🎯 HANOI PROFESSIONAL v2.0")
     st.caption("Weekday-specific Dynamic Daily Number + Backtest + Weighted Prediction")
 
     with st.sidebar:
