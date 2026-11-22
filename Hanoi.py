@@ -395,7 +395,7 @@ def generate_prediction(df, next_day):
 # STREAMLIT WEB APP
 # ================================================================
 st.set_page_config(
-    page_title="HANOI AI PROFESSIONAL v2.0",
+    page_title="หวยฮานอย 2026",
     page_icon="🎯",
     layout="wide",
 )
@@ -490,7 +490,7 @@ def render_prediction(df):
 def main():
     initialize_csv()
 
-    st.title("🎯 HANOI AI PROFESSIONAL v2.0")
+    st.title("🎯 หวยฮานอย 2026")
     st.caption("Dynamic Backtest + Formula Accuracy + Weighted Prediction")
 
     df = get_app_history()
