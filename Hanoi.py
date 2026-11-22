@@ -2,26 +2,19 @@ import os
 import pandas as pd
 import streamlit as st
 from collections import Counter, defaultdict
-from datetime import datetime
 
 # ================================================================
-# PAGE CONFIG
+# HANOI AI PROFESSIONAL v2.0
+# Dynamic Backtest + Formula Accuracy + Weighted Prediction
 # ================================================================
-st.set_page_config(
-    page_title="Hanoi AI Professional v2.0",
-    page_icon="🎯",
-    layout="wide",
-)
 
-# ================================================================
-# CONSTANTS & CONFIG
-# ================================================================
 CSV_FILE = "history_hanoi.csv"
 MIN_HISTORY_FOR_DYNAMIC_WEIGHT = 10
 RECENT_WINDOW = 30
 
+# ชุดเลขประจำวันตั้งต้นจากไฟล์เดิม
 DEFAULT_DAILY_NUMBERS = {
-    "Monday": "194286",
+    "Monday": "921468",
     "Tuesday": "194286",
     "Wednesday": "431560",
     "Thursday": "541609",
@@ -43,11 +36,7 @@ FORMULAS = [
     "Sandwich",
 ]
 
-DAYS_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-# ================================================================
-# CORE LOGIC FUNCTIONS
-# ================================================================
 def zfill_num(value, width):
     try:
         if pd.isna(value):
@@ -83,10 +72,10 @@ def initialize_csv():
             ["29/09/2569", "05651", "08389", "651", "89"],
             ["28/09/2569", "77115", "86908", "115", "08"],
         ]
-        pd.DataFrame(
-            initial_data,
-            columns=["date", "special", "first_prize", "top_3", "bottom_2"]
-        ).to_csv(CSV_FILE, index=False, encoding="utf-8-sig")
+        pd.DataFrame(initial_data, columns=[
+            "date", "special", "first_prize", "top_3", "bottom_2"
+        ]).to_csv(CSV_FILE, index=False, encoding="utf-8-sig")
+        print(f"สร้าง {CSV_FILE} เริ่มต้นแล้ว")
 
 
 def load_history():
@@ -158,58 +147,27 @@ def get_transformations(top_3_str, bottom_2_str="00"):
 
 
 def daily_number_for_day(day, history=None):
+    """สร้าง Daily Number แบบ Dynamic จากข้อมูลเดิม หากมี history มากพอ.
+    ถ้ายังมีข้อมูลน้อย จะใช้ชุดตั้งต้นจากเวอร์ชันเดิม.
     """
-    สร้าง Daily Number แยกตามวันจาก 30 งวดล่าสุดของวันนั้นเท่านั้น
-    ใช้ 3 ตัวบน + 2 ตัวล่าง และผสาน Frequency, Position, Recency
-    """
-    if history is None or history.empty:
-        return "000000"
+    base = DEFAULT_DAILY_NUMBERS.get(day, "000000")
+    if history is None or len(history) < MIN_HISTORY_FOR_DYNAMIC_WEIGHT:
+        return base
 
-    day_history = history.copy()
-    if "weekday_en" not in day_history.columns:
-        if "dt" in day_history.columns:
-            day_history["weekday_en"] = day_history["dt"].dt.day_name()
-        else:
-            return "000000"
-
-    day_history = day_history[day_history["weekday_en"] == day].copy()
-    if day_history.empty:
-        return "000000"
-
-    if "dt" in day_history.columns:
-        day_history = day_history.sort_values("dt", ascending=False)
-    recent = day_history.head(RECENT_WINDOW)
-
+    # ใช้ความถี่ digit จากผล 3D+2D ในงวดล่าสุด โดยผสมกับ Daily เดิม
+    recent = history.tail(min(RECENT_WINDOW, len(history)))
     freq = Counter()
-    recency = Counter()
-    position_counts = {pos: Counter() for pos in range(5)}
+    for _, row in recent.iterrows():
+        freq.update(str(row["top_3"]))
+        freq.update(str(row["bottom_2"]))
 
-    for age, (_, row) in enumerate(recent.iterrows()):
-        digits = zfill_num(row.get("top_3", ""), 3) + zfill_num(row.get("bottom_2", ""), 2)
-        decay = 0.90 ** age
-        for pos, char in enumerate(digits):
-            freq[char] += 1
-            recency[char] += decay
-            position_counts[pos][char] += 1
+    # คะแนน = ความถี่ + โบนัสเลขจาก daily เดิม เพื่อไม่ให้ระบบเปลี่ยนแรงเกินไป
+    score = {str(i): float(freq[str(i)]) for i in range(10)}
+    for d in base:
+        score[d] += 1.5
 
-    max_freq = max(freq.values()) if freq else 1
-    max_recency = max(recency.values()) if recency else 1
-
-    scores = {}
-    for digit in "0123456789":
-        pos_scores = []
-        for pos in range(5):
-            max_at_pos = max(position_counts[pos].values()) if position_counts[pos] else 1
-            pos_scores.append(position_counts[pos][digit] / max_at_pos)
-        position_score = sum(pos_scores) / 5
-        scores[digit] = (
-            0.40 * (freq[digit] / max_freq)
-            + 0.25 * position_score
-            + 0.35 * (recency[digit] / max_recency)
-        )
-
-    ranked = sorted("0123456789", key=lambda d: (-scores[d], -freq[d], -recency[d], d))
-    return "".join(ranked[:6])
+    ordered = sorted(score, key=lambda d: (-score[d], d))
+    return "".join(ordered[:6])
 
 
 def formula_candidates(base_t3, base_b2, next_day, history=None):
@@ -231,6 +189,7 @@ def formula_candidates(base_t3, base_b2, next_day, history=None):
 
 
 def evaluate_formula(formula, trans, daily, actual_t3, actual_b2):
+    """วัด Hit แบบละเอียด ไม่ใช้กฎ 'มีเลข 1 ตัวก็ Hit'."""
     t3 = zfill_num(actual_t3, 3)
     b2 = zfill_num(actual_b2, 2)
 
@@ -263,6 +222,7 @@ def evaluate_formula(formula, trans, daily, actual_t3, actual_b2):
 
 
 def exact_pattern_score(formula, trans, daily, actual_t3, actual_b2):
+    """คะแนนเสริม 0-1 สำหรับความตรงของ pattern/ตำแหน่ง."""
     t3 = zfill_num(actual_t3, 3)
     b2 = zfill_num(actual_b2, 2)
 
@@ -274,6 +234,7 @@ def exact_pattern_score(formula, trans, daily, actual_t3, actual_b2):
     if formula == "Shift +2":
         return float(t3 == trans["shifted"]), float(b2 == trans["shifted"][-2:])
     if formula == "Daily 6-Digit":
+        # วัดจำนวน digit ที่อยู่ใน Daily / 3 และ / 2
         return len(set(t3) & set(daily)) / 3.0, len(set(b2) & set(daily)) / 2.0
     return 0.0, 0.0
 
@@ -291,12 +252,10 @@ def backtest_dataframe(df):
         trans = get_transformations(prev["top_3"], prev["bottom_2"])
 
         for formula in FORMULAS:
-            hit3, hit2 = evaluate_formula(
-                formula, trans, daily, actual["top_3"], actual["bottom_2"]
-            )
-            exact3, exact2 = exact_pattern_score(
-                formula, trans, daily, actual["top_3"], actual["bottom_2"]
-            )
+            hit3, hit2 = evaluate_formula(formula, trans, daily,
+                                          actual["top_3"], actual["bottom_2"])
+            exact3, exact2 = exact_pattern_score(formula, trans, daily,
+                                                 actual["top_3"], actual["bottom_2"])
             rows.append({
                 "date": actual["date"],
                 "weekday": day,
@@ -315,6 +274,7 @@ def formula_ranking(df):
         return pd.DataFrame()
 
     result = []
+    total = bt.groupby("formula").size()
     for formula in FORMULAS:
         x = bt[bt["formula"] == formula]
         n = len(x)
@@ -322,6 +282,7 @@ def formula_ranking(df):
         hit2 = x["hit_2d"].sum()
         avg_exact3 = x["exact_3d"].mean()
         avg_exact2 = x["exact_2d"].mean()
+        # Composite ใช้สำหรับจัดอันดับ ไม่ใช่โอกาสถูกรางวัลจริง
         composite = (
             0.40 * (hit3 / n) +
             0.35 * (hit2 / n) +
@@ -347,6 +308,7 @@ def dynamic_weights(df):
 
     weights = {}
     for _, row in ranking.iterrows():
+        # Base 1.0 + performance premium; จำกัดไม่ให้สูตรเดียวครองระบบ
         w = 0.5 + row["Composite"] / 50.0
         weights[row["Formula"]] = max(0.5, min(3.0, w))
     return weights
@@ -361,11 +323,6 @@ def digit_scores(df, next_day):
         latest["top_3"], latest["bottom_2"], next_day, df
     )
     weights = dynamic_weights(df)
-    
-    # เพิ่มน้ำหนักให้สูตร Daily 6-Digit ตามวันที่เลือก
-    if "Daily 6-Digit" in weights:
-        weights["Daily 6-Digit"] *= 3.5
-
     scores = {str(i): 0.0 for i in range(10)}
 
     for formula in FORMULAS:
@@ -373,6 +330,7 @@ def digit_scores(df, next_day):
         for digit in candidates[formula]:
             scores[str(digit)] += w
 
+    # Frequency ล่าสุดเป็นตัวช่วยเล็กน้อย ไม่ให้ history เก่าครองทั้งหมด
     recent = df.tail(min(20, len(df)))
     freq = Counter()
     for _, row in recent.iterrows():
@@ -390,68 +348,30 @@ def generate_prediction(df, next_day):
 
     latest = df.iloc[-1]
     scores, weights, daily = digit_scores(df, next_day)
-
-    # Daily Number contributes to the ranking before Main / Secondary / Backup
-    for d in daily:
-        if d in scores:
-            scores[d] += 8.0
-
     ordered = sorted(scores, key=lambda d: (-scores[d], d))
     den = ordered[0]
     rong = ordered[1:4]
     kan = ordered[4:7]
 
-    # All number sets below are derived from the ranked Main / Secondary / Backup digits.
-    # Keep the priority order and remove duplicates.
-    core_digits = list(dict.fromkeys([den] + rong + kan))
-    support_digits = list(dict.fromkeys(rong + kan))
-
-    # 2D: pair Main with every Secondary / Backup digit, both straight and reversed.
+    # 2D เน้น + กลับ
     pairs = []
-    for digit in support_digits:
-        pairs.extend([den + digit, digit + den])
+    for r in rong:
+        pairs.extend([den + r, r + den])
     pairs = list(dict.fromkeys(pairs))
 
-    # Doubles: repeat each digit in the Main / Secondary / Backup pool.
-    doubles = [digit * 2 for digit in core_digits]
+    # 3D: สร้างหลายชุดจาก 4 digit แรก แล้วจัดอันดับด้วย digit score
+    top4 = ordered[:4]
+    triples = []
+    for a in top4:
+        for b in top4:
+            for c in top4:
+                if len({a, b, c}) >= 2:
+                    triples.append(a + b + c)
+    triples = sorted(set(triples), key=lambda x: -(scores[x[0]] + scores[x[1]] + scores[x[2]]))[:12]
 
-    # 3D AI Top 10: each candidate must contain exactly:
-    # 1 Main Digit + 1 Secondary digit + 1 Backup digit.
-    # Generate all six positional arrangements, then rank by combined score.
-    triple_candidates = set()
-    for secondary_digit in rong:
-        for backup_digit in kan:
-            triple_candidates.update({
-                den + secondary_digit + backup_digit,
-                den + backup_digit + secondary_digit,
-                secondary_digit + den + backup_digit,
-                secondary_digit + backup_digit + den,
-                backup_digit + den + secondary_digit,
-                backup_digit + secondary_digit + den,
-            })
-
-    triples = sorted(
-        triple_candidates,
-        key=lambda number: (
-            -(scores[number[0]] + scores[number[1]] + scores[number[2]]),
-            number
-        )
-    )[:10]
-
-    # Sandwiches: ABA patterns formed only from Main / Secondary / Backup digits.
-    sandwich_candidates = {
-        a + b + a
-        for a in core_digits
-        for b in core_digits
-        if a != b
-    }
-    sandwiches = sorted(
-        sandwich_candidates,
-        key=lambda number: (
-            -(scores[number[0]] * 2 + scores[number[1]]),
-            number
-        )
-    )[:8]
+    doubles = [d + d for d in ordered[:4]]
+    sandwiches = [a + b + a for a in ordered[:4] for b in ordered[:4] if a != b]
+    sandwiches = sandwiches[:8]
 
     return {
         "latest": latest,
@@ -469,256 +389,279 @@ def generate_prediction(df, next_day):
     }
 
 
+
+
 # ================================================================
-# STREAMLIT UI
+# STREAMLIT WEB APP
 # ================================================================
+st.set_page_config(
+    page_title="HANOI AI PROFESSIONAL v2.0",
+    page_icon="🎯",
+    layout="wide",
+)
+
+DAYS_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday",
+              "Friday", "Saturday", "Sunday"]
+DAY_TH = {
+    "Monday": "วันจันทร์",
+    "Tuesday": "วันอังคาร",
+    "Wednesday": "วันพุธ",
+    "Thursday": "วันพฤหัสบดี",
+    "Friday": "วันศุกร์",
+    "Saturday": "วันเสาร์",
+    "Sunday": "วันอาทิตย์",
+}
+
+
+def get_app_history():
+    df = load_history()
+    if df.empty:
+        return df
+    return df.sort_values("dt", ascending=True).reset_index(drop=True)
+
+
+def render_prediction(df):
+    if df.empty:
+        st.warning("ยังไม่มีข้อมูล กรุณาเพิ่มผลรางวัลในแท็บ อัปเดต / ลบผลรางวัล")
+        return
+
+    latest = df.iloc[-1]
+    suggested_day = (latest["dt"] + pd.Timedelta(days=1)).day_name()
+    default_index = DAYS_ORDER.index(suggested_day) if suggested_day in DAYS_ORDER else 0
+
+    col_day, col_base = st.columns([1, 2])
+    with col_day:
+        selected_day = st.selectbox(
+            "เลือกวันสำหรับการวิเคราะห์",
+            DAYS_ORDER,
+            index=default_index,
+            format_func=lambda x: f"{DAY_TH[x]} ({x})",
+        )
+    with col_base:
+        st.info(
+            f"**ฐานข้อมูลล่าสุด:** {latest['date']} ({DAY_TH.get(latest['weekday_en'], latest['weekday_en'])})"
+            f"  |  3 ตัวบน: **{latest['top_3']}**  |  2 ตัวล่าง: **{latest['bottom_2']}**"
+        )
+
+    pred = generate_prediction(df, selected_day)
+    if pred is None:
+        st.warning("ไม่สามารถสร้างผลวิเคราะห์ได้")
+        return
+
+    st.subheader(f"ผลวิเคราะห์ {DAY_TH[selected_day]} — Daily Number: `{pred['daily']}`")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🎯 เลขเด่น", pred["den"], f"Score {pred['scores'][pred['den']]:.2f}")
+    m2.metric("🥈 เลขรอง", " - ".join(pred["rong"]))
+    m3.metric("🛡️ เลขกัน", " - ".join(pred["kan"]))
+
+    st.divider()
+    left, right = st.columns(2)
+    with left:
+        st.markdown("#### 🔢 ชุด 2 ตัว (ไป-กลับ)")
+        st.success("  |  ".join(pred["pairs"]) if pred["pairs"] else "ไม่มีชุดตัวเลข")
+        st.markdown("#### 👯 ชุดเลขเบิ้ล")
+        st.warning("  |  ".join(pred["doubles"]) if pred["doubles"] else "ไม่มีชุดตัวเลข")
+    with right:
+        st.markdown("#### 🎰 ชุด 3 ตัว AI (Top 10)")
+        st.info("  |  ".join(pred["triples"][:10]) if pred["triples"] else "ไม่มีชุดตัวเลข")
+        st.markdown("#### 🥪 ชุดเลขหาม")
+        st.warning("  |  ".join(pred["sandwiches"]) if pred["sandwiches"] else "ไม่มีชุดตัวเลข")
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### คะแนนตัวเลข 0–9")
+        score_df = pd.DataFrame({
+            "เลข": list(pred["scores"].keys()),
+            "คะแนน": list(pred["scores"].values()),
+        }).sort_values("เลข")
+        st.bar_chart(score_df.set_index("เลข"))
+    with c2:
+        st.markdown("#### Dynamic Formula Weight")
+        weight_df = pd.DataFrame(
+            [{"Formula": k, "Weight": round(v, 3)}
+             for k, v in sorted(pred["weights"].items(), key=lambda x: x[1], reverse=True)]
+        )
+        st.dataframe(weight_df, use_container_width=True, hide_index=True)
+
+    st.caption("ผลวิเคราะห์เป็นการจัดอันดับจากสูตรและสถิติย้อนหลัง ไม่ใช่การรับประกันผลรางวัล")
+
+
 def main():
     initialize_csv()
 
-    st.title("🎯 HANOI PROFESSIONAL v2.0")
-    st.caption("Weekday-specific Dynamic Daily Number + Backtest + Weighted Prediction")
+    st.title("🎯 HANOI AI PROFESSIONAL v2.0")
+    st.caption("Dynamic Backtest + Formula Accuracy + Weighted Prediction")
+
+    df = get_app_history()
+    df_desc = df.sort_values("dt", ascending=False).reset_index(drop=True) if not df.empty else df
 
     with st.sidebar:
-        st.header("📁 จัดการฐานข้อมูล (CSV)")
-        df_current = load_history().sort_values("dt", ascending=False)
-        st.metric("จำนวนงวดในระบบ", f"{len(df_current)} งวด")
-
-        raw_csv = df_current.drop(columns=["dt", "weekday_en"], errors="ignore").to_csv(index=False, encoding="utf-8-sig")
+        st.header("📁 จัดการฐานข้อมูล")
+        st.metric("จำนวนงวดในระบบ", f"{len(df)} งวด")
+        export_df = df_desc.drop(columns=["dt", "weekday_en"], errors="ignore")
         st.download_button(
-            label="⬇️ ดาวน์โหลด history_hanoi.csv",
-            data=raw_csv,
+            "⬇️ ดาวน์โหลด history_hanoi.csv",
+            data=export_df.to_csv(index=False, encoding="utf-8-sig"),
             file_name="history_hanoi.csv",
             mime="text/csv",
             use_container_width=True,
         )
-
         st.divider()
-
-        uploaded_file = st.file_uploader("⬆️ อัปโหลดไฟล์ CSV เพื่อกู้คืนข้อมูล", type=["csv"])
-        if uploaded_file is not None:
+        uploaded = st.file_uploader("อัปโหลด CSV เพื่อกู้คืน / แทนที่ฐานข้อมูล", type=["csv"])
+        if uploaded is not None:
             try:
-                up_df = pd.read_csv(uploaded_file, dtype=str).fillna("")
+                imported = pd.read_csv(uploaded, dtype=str).fillna("")
                 required = ["date", "special", "first_prize", "top_3", "bottom_2"]
-                if all(col in up_df.columns for col in required):
-                    save_history(up_df)
-                    st.success("✅ นำเข้าข้อมูล CSV สำเร็จ!")
-                    st.rerun()
+                missing = [c for c in required if c not in imported.columns]
+                if missing:
+                    st.error("ไฟล์ CSV ขาดคอลัมน์: " + ", ".join(missing))
                 else:
-                    st.error(f"❌ ไฟล์ต้องมีคอลัมน์: {', '.join(required)}")
-            except Exception as e:
-                st.error(f"เกิดข้อผิดพลาด: {e}")
+                    if st.button("ยืนยันนำเข้าและแทนที่ฐานข้อมูล", type="primary"):
+                        imported["dt"] = imported["date"].apply(parse_thai_date)
+                        imported = imported.dropna(subset=["dt"]).copy()
+                        imported["top_3"] = imported["top_3"].apply(lambda x: zfill_num(x, 3))
+                        imported["bottom_2"] = imported["bottom_2"].apply(lambda x: zfill_num(x, 2))
+                        imported = imported.sort_values("dt", ascending=False)
+                        save_history(imported)
+                        st.success(f"นำเข้าสำเร็จ {len(imported)} งวด")
+                        st.rerun()
+            except Exception as exc:
+                st.error(f"อ่านไฟล์ CSV ไม่สำเร็จ: {exc}")
 
-        st.info("💡 **คำแนะนำ:** บน Streamlit Cloud ข้อมูลอาจถูกรีเซ็ตหากแอปหยุดทำงานเป็นเวลานาน ควรดาวน์โหลดไฟล์ CSV เก็บไว้หลังอัปเดตผลรางวัล")
-
-    df_asc = load_history().sort_values("dt").reset_index(drop=True)
-    df_desc = df_asc.sort_values("dt", ascending=False).reset_index(drop=True)
+        st.info(
+            "หมายเหตุ: บน Streamlit Cloud การบันทึก CSV ในพื้นที่แอปอาจไม่ถาวร "
+            "ควรดาวน์โหลดสำรองหลังอัปเดตข้อมูล"
+        )
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🔮 วิเคราะห์งวดถัดไป (Prediction)",
+        "🔮 Prediction",
         "➕ อัปเดต / ลบผลรางวัล",
-        "📊 จัดอันดับสูตร (Ranking & Backtest)",
-        "📜 ประวัติผลรางวัล (History)",
-        "📅 เลขประจำวัน (Daily 6-Digit)",
+        "📊 Ranking & Backtest",
+        "📜 History",
+        "📅 Daily Numbers",
     ])
 
     with tab1:
-        if df_asc.empty:
-            st.warning("⚠️ ไม่มีข้อมูลในระบบ กรุณาเพิ่มข้อมูลในแท็บ 'อัปเดต / ลบผลรางวัล'")
-        else:
-            latest = df_asc.iloc[-1]
-            next_dt = latest["dt"] + pd.Timedelta(days=1)
-            default_next_day = next_dt.day_name()
-            default_idx = DAYS_ORDER.index(default_next_day) if default_next_day in DAYS_ORDER else 0
-
-            col_sel, col_base = st.columns([1, 2])
-            with col_sel:
-                selected_day = st.selectbox(
-                    "เลือกวันของงวดถัดไป",
-                    DAYS_ORDER,
-                    index=default_idx,
-                )
-            with col_base:
-                st.info(
-                    f"**ฐานข้อมูลล่าสุด:** วันที่ `{latest['date']}` ({latest['weekday_en']}) | "
-                    f"3 ตัวบน: **`{latest['top_3']}`** | 2 ตัวล่าง: **`{latest['bottom_2']}`**"
-                )
-
-            pred = generate_prediction(df_asc, selected_day)
-
-            st.subheader(f"สรุปแนวทางประจำวัน {selected_day} (Daily: `{pred['daily']}`)")
-
-            m1, m2, m3 = st.columns(3)
-            with m1:
-                st.metric(
-                    label="🎯 เด่น (Main Digit)",
-                    value=pred["den"],
-                    delta=f"Score: {pred['scores'][pred['den']]:.2f}",
-                )
-            with m2:
-                st.metric(
-                    label="🥈 รอง (Secondary)",
-                    value=" - ".join(pred["rong"]),
-                )
-            with m3:
-                st.metric(
-                    label="🛡️ กัน (Backup)",
-                    value=" - ".join(pred["kan"]),
-                )
-
-            st.divider()
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("#### 🔢 ชุด 2 ตัว (เน้นไป-กลับ)")
-                st.success(" ,  ".join(pred["pairs"]))
-
-                st.markdown("#### 👯 ชุดเบิ้ล (Doubles)")
-                st.warning(" ,  ".join(pred["doubles"]))
-
-            with c2:
-                st.markdown("#### 🎰 ชุด 3 ตัว (AI Top 10)")
-                st.info(" ,  ".join(pred["triples"][:10]))
-
-                st.markdown("#### 🥪 ชุดหาม (Sandwiches)")
-                st.warning(" ,  ".join(pred["sandwiches"]))
-
-            st.divider()
-
-            g1, g2 = st.columns(2)
-            with g1:
-                st.markdown("#### 📈 คะแนนความน่าจะเป็นรายตัวเลข (0-9)")
-                score_df = pd.DataFrame({
-                    "Digit": list(pred["scores"].keys()),
-                    "Score": list(pred["scores"].values())
-                }).sort_values("Digit")
-                st.bar_chart(score_df.set_index("Digit"))
-
-            with g2:
-                st.markdown("#### ⚖️ Dynamic Formula Weights")
-                weight_df = pd.DataFrame([
-                    {"Formula": k, "Weight": round(v, 2)}
-                    for k, v in sorted(pred["weights"].items(), key=lambda x: x[1], reverse=True)
-                ])
-                st.dataframe(weight_df, use_container_width=True, hide_index=True)
+        render_prediction(df)
 
     with tab2:
-        col_add, col_del = st.columns([3, 2])
+        add_col, delete_col = st.columns([3, 2])
+        with add_col:
+            st.subheader("➕ บันทึกผลรางวัลใหม่")
+            if not df.empty:
+                next_date = df.iloc[-1]["dt"] + pd.Timedelta(days=1)
+                default_date = f"{next_date.day:02d}/{next_date.month:02d}/{next_date.year + 543}"
+            else:
+                now = datetime.now()
+                default_date = f"{now.day:02d}/{now.month:02d}/{now.year + 543}"
 
-        with col_add:
-            st.subheader("➕ บันทึกผลรางวัลงวดใหม่")
             with st.form("add_result_form", clear_on_submit=True):
-                if not df_asc.empty:
-                    sug_dt = df_asc.iloc[-1]["dt"] + pd.Timedelta(days=1)
-                    sug_date_str = f"{sug_dt.day:02d}/{sug_dt.month:02d}/{sug_dt.year + 543}"
+                date_value = st.text_input("วันที่ (DD/MM/YYYY พ.ศ.)", value=default_date)
+                c1, c2 = st.columns(2)
+                with c1:
+                    special = st.text_input("รางวัลพิเศษ (5 หลัก)", max_chars=5)
+                    top3 = st.text_input("เลข 3 ตัวบน (3 หลัก) *", max_chars=3)
+                with c2:
+                    first_prize = st.text_input("รางวัลที่ 1 (5 หลัก)", max_chars=5)
+                    bottom2 = st.text_input("เลข 2 ตัวล่าง (2 หลัก) *", max_chars=2)
+                submitted = st.form_submit_button("💾 บันทึกผลรางวัล", type="primary", use_container_width=True)
+
+            if submitted:
+                parsed = parse_thai_date(date_value)
+                if pd.isna(parsed):
+                    st.error("รูปแบบวันที่ไม่ถูกต้อง ตัวอย่าง 06/10/2569")
+                elif not top3.strip().isdigit() or not bottom2.strip().isdigit():
+                    st.error("กรุณากรอกเลข 3 ตัวบนและ 2 ตัวล่างเป็นตัวเลข")
+                elif len(top3.strip()) > 3 or len(bottom2.strip()) > 2:
+                    st.error("เลข 3 ตัวบนต้องไม่เกิน 3 หลัก และเลข 2 ตัวล่างต้องไม่เกิน 2 หลัก")
                 else:
-                    now = datetime.now()
-                    sug_date_str = f"{now.day:02d}/{now.month:02d}/{now.year + 543}"
+                    new_row = pd.DataFrame([{
+                        "date": date_value.strip(),
+                        "special": special.strip(),
+                        "first_prize": first_prize.strip(),
+                        "top_3": zfill_num(top3, 3),
+                        "bottom_2": zfill_num(bottom2, 2),
+                    }])
+                    raw = df_desc.drop(columns=["dt", "weekday_en"], errors="ignore")
+                    raw = pd.concat([new_row, raw], ignore_index=True)
+                    raw["dt"] = raw["date"].apply(parse_thai_date)
+                    raw = raw.dropna(subset=["dt"]).drop_duplicates(subset=["date"], keep="first")
+                    raw = raw.sort_values("dt", ascending=False)
+                    save_history(raw)
+                    st.success(f"บันทึกผลรางวัลวันที่ {date_value} สำเร็จ")
+                    st.rerun()
 
-                date_str = st.text_input("วันที่ (DD/MM/YYYY พ.ศ.)", value=sug_date_str)
-                c_in1, c_in2 = st.columns(2)
-                with c_in1:
-                    special = st.text_input("รางวัลพิเศษ (5 หลัก)", max_chars=5, placeholder="เช่น 95242")
-                    top_3 = st.text_input("เลข 3 ตัวบน (3 หลัก) *", max_chars=3, placeholder="เช่น 242")
-                with c_in2:
-                    first_prize = st.text_input("รางวัลที่ 1 (5 หลัก)", max_chars=5, placeholder="เช่น 82585")
-                    bottom_2 = st.text_input("เลข 2 ตัวล่าง (2 หลัก) *", max_chars=2, placeholder="เช่น 85")
-
-                submitted = st.form_submit_button("💾 บันทึกผลรางวัล", use_container_width=True, type="primary")
-                if submitted:
-                    parsed_dt = parse_thai_date(date_str)
-                    if pd.isna(parsed_dt):
-                        st.error("❌ รูปแบบวันที่ไม่ถูกต้อง กรุณาใส่เป็น DD/MM/YYYY (พ.ศ.) เช่น 06/10/2569")
-                    elif not top_3.isdigit() or not bottom_2.isdigit():
-                        st.error("❌ กรุณากรอกเลข 3 ตัวบน และ 2 ตัวล่าง เป็นตัวเลขให้ครบถ้วน")
-                    else:
-                        new_row = pd.DataFrame([{
-                            "date": date_str.strip(),
-                            "special": special.strip(),
-                            "first_prize": first_prize.strip(),
-                            "top_3": zfill_num(top_3, 3),
-                            "bottom_2": zfill_num(bottom_2, 2),
-                        }])
-                        raw = df_desc.drop(columns=["dt", "weekday_en"], errors="ignore")
-                        raw = pd.concat([new_row, raw], ignore_index=True)
-                        raw = raw.drop_duplicates(subset=["date"], keep="first")
-                        raw["dt"] = raw["date"].apply(parse_thai_date)
-                        raw = raw.sort_values("dt", ascending=False)
-                        save_history(raw)
-                        st.success(f"✅ บันทึกผลรางวัลงวดวันที่ {date_str} เรียบร้อยแล้ว!")
-                        st.rerun()
-
-        with col_del:
-            st.subheader("🗑️ ลบข้อมูลงวดล่าสุด")
+        with delete_col:
+            st.subheader("🗑️ ลบงวดล่าสุด")
             if df_desc.empty:
                 st.info("ไม่มีข้อมูลให้ลบ")
             else:
-                st.write("รายการล่าสุด 5 งวด:")
                 st.dataframe(
                     df_desc[["date", "top_3", "bottom_2", "weekday_en"]].head(5),
                     use_container_width=True,
                     hide_index=True,
                 )
-                latest_del = df_desc.iloc[0]
-                if st.button(f"❌ ลบงวดล่าสุด ({latest_del['date']})", type="secondary", use_container_width=True):
-                    df_after_del = df_desc.iloc[1:].copy()
-                    save_history(df_after_del)
-                    st.success(f"ลบงวดวันที่ {latest_del['date']} เรียบร้อยแล้ว")
+                latest_row = df_desc.iloc[0]
+                confirm_delete = st.checkbox(f"ยืนยันลบงวด {latest_row['date']}")
+                if st.button("ลบงวดล่าสุด", type="secondary", disabled=not confirm_delete, use_container_width=True):
+                    save_history(df_desc.iloc[1:].copy())
+                    st.success(f"ลบงวด {latest_row['date']} แล้ว")
                     st.rerun()
 
     with tab3:
-        st.subheader("📊 ผลทดสอบย้อนหลังและจัดอันดับสูตร (Formula Ranking)")
-        if len(df_asc) < 2:
-            st.warning("⚠️ ข้อมูลไม่เพียงพอ ต้องมีอย่างน้อย 2 งวดขึ้นไปเพื่อทำการ Backtest")
+        st.subheader("📊 Formula Ranking")
+        if len(df) < 2:
+            st.warning("ต้องมีอย่างน้อย 2 งวดเพื่อทำ Backtest")
         else:
-            ranking_df = formula_ranking(df_asc)
-            st.dataframe(
-                ranking_df.style.highlight_max(subset=["Composite", "3D Hit%", "2D Hit%"], color="#1e4620"),
-                use_container_width=True,
-                hide_index=True,
-            )
+            ranking = formula_ranking(df)
+            st.dataframe(ranking, use_container_width=True, hide_index=True)
             st.caption(
-                "หมายเหตุ: `Hit%` คือการมีเลขจากสูตรอยู่ในผลจริง; `Exact%` เป็นคะแนนความตรงของ Pattern (ไม่ใช่การรับประกันถูกรางวัล)"
+                "Hit% คือการมีเลขจากสูตรอยู่ในผลจริง; Exact% เป็นคะแนนความตรงของ Pattern "
+                "ไม่ใช่โอกาสหรือการรับประกันถูกรางวัล"
             )
-
             st.divider()
-            st.subheader("🔍 รายละเอียดการทดสอบย้อนหลังรายงวด (Backtest Detail)")
-            bt_df = backtest_dataframe(df_asc)
-            
-            filter_formula = st.multiselect(
-                "กรองตามสูตร (ว่างไว้ = แสดงทั้งหมด)",
-                options=FORMULAS,
-                default=[]
-            )
-            if filter_formula:
-                bt_display = bt_df[bt_df["formula"].isin(filter_formula)]
-            else:
-                bt_display = bt_df
-
-            st.dataframe(
-                bt_display.iloc[::-1].head(100),
-                use_container_width=True,
-                hide_index=True,
+            st.subheader("🔍 Backtest Detail")
+            bt = backtest_dataframe(df)
+            selected_formulas = st.multiselect("เลือกสูตรที่ต้องการดู", FORMULAS, default=[])
+            shown = bt[bt["formula"].isin(selected_formulas)] if selected_formulas else bt
+            st.dataframe(shown.iloc[::-1].head(200), use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ ดาวน์โหลด Backtest CSV",
+                data=bt.to_csv(index=False, encoding="utf-8-sig"),
+                file_name="hanoi_backtest.csv",
+                mime="text/csv",
             )
 
     with tab4:
         st.subheader(f"📜 ประวัติผลรางวัลทั้งหมด ({len(df_desc)} งวด)")
-        cols = ["date", "weekday_en", "special", "first_prize", "top_3", "bottom_2"]
-        st.dataframe(df_desc[cols], use_container_width=True, hide_index=True)
+        if df_desc.empty:
+            st.info("ยังไม่มีประวัติผลรางวัล")
+        else:
+            columns = ["date", "weekday_en", "special", "first_prize", "top_3", "bottom_2"]
+            st.dataframe(df_desc[columns], use_container_width=True, hide_index=True)
 
     with tab5:
-        st.subheader("📅 ชุดเลขประจำวัน (Daily 6-Digit)")
-        daily_rows = []
-        for day in DAYS_ORDER:
-            daily_rows.append({
-                "Day": day,
-                "Daily Number (คำนวณจากวันนั้น)": daily_number_for_day(day, df_asc),
-            })
-        st.table(pd.DataFrame(daily_rows))
-
-        if len(df_asc) >= MIN_HISTORY_FOR_DYNAMIC_WEIGHT:
-            st.success(f"✅ ระบบคำนวณ Daily Number แยกตามวัน จาก 3 ตัวบน + 2 ตัวล่าง โดยใช้ไม่เกิน {RECENT_WINDOW} งวดล่าสุดของวันนั้น")
+        st.subheader("📅 Daily Numbers")
+        daily_rows = [
+            {
+                "Day": DAY_TH[day],
+                "Daily Number": daily_number_for_day(day, df),
+                "Calculation": "Dynamic" if len(df) >= MIN_HISTORY_FOR_DYNAMIC_WEIGHT else "Default",
+            }
+            for day in DAYS_ORDER
+        ]
+        st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
+        if len(df) >= MIN_HISTORY_FOR_DYNAMIC_WEIGHT:
+            st.success(
+                f"มี History {len(df)} งวด ระบบคำนวณ Daily Number แบบ Dynamic "
+                f"โดยใช้ข้อมูลล่าสุดไม่เกิน {RECENT_WINDOW} งวดจาก History รวม"
+            )
         else:
-            st.info("ℹ️ ระบบใช้ข้อมูลที่มีอยู่ของแต่ละวัน หากยังมีไม่ครบ 30 งวด จะแสดงผลจากจำนวนงวดที่มีจริง")
+            st.info(
+                f"History ยังไม่ถึง {MIN_HISTORY_FOR_DYNAMIC_WEIGHT} งวด "
+                "จึงใช้ Default Daily Number ตามโค้ดต้นฉบับ"
+            )
 
 
 if __name__ == "__main__":
