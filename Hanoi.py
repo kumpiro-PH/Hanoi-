@@ -371,15 +371,14 @@ def generate_prediction(df, next_day):
         pairs.extend([den + r, r + den])
     pairs = list(dict.fromkeys(pairs))
 
-    # 3D: สร้างหลายชุดจาก 4 digit แรก แล้วจัดอันดับด้วย digit score
-    top4 = ordered[:4]
-    triples = []
-    for a in top4:
-        for b in top4:
-            for c in top4:
-                if len({a, b, c}) >= 2:
-                    triples.append(a + b + c)
-    triples = sorted(set(triples), key=lambda x: -(scores[x[0]] + scores[x[1]] + scores[x[2]]))[:12]
+    # 3D AI แบบไม่กลับตำแหน่ง:
+    # หลักที่ 1 = เลขเด่น, หลักที่ 2 = เลขรอง, หลักที่ 3 = เลขกัน
+    # ตัวอย่าง 8 / 2-6-1 / 9-3-4 => 829, 823, 824, 869, ...
+    triples = [den + r + k for r in rong for k in kan]
+    triples = sorted(
+        dict.fromkeys(triples),
+        key=lambda x: -(scores[x[0]] + scores[x[1]] + scores[x[2]])
+    )[:10]
 
     doubles = [d + d for d in ordered[:4]]
     sandwiches = [a + b + a for a in ordered[:4] for b in ordered[:4] if a != b]
@@ -474,7 +473,7 @@ def render_prediction(df):
         st.markdown("#### 👯 ชุดเลขเบิ้ล")
         st.warning("  |  ".join(pred["doubles"]) if pred["doubles"] else "ไม่มีชุดตัวเลข")
     with right:
-        st.markdown("#### 🎰 ชุด 3 ตัว AI (Top 10)")
+        st.markdown("#### 🎰 ชุด 3 ตัว AI (ไม่กลับตำแหน่ง · Top 10)")
         st.info("  |  ".join(pred["triples"][:10]) if pred["triples"] else "ไม่มีชุดตัวเลข")
         st.markdown("#### 🥪 ชุดเลขหาม")
         st.warning("  |  ".join(pred["sandwiches"]) if pred["sandwiches"] else "ไม่มีชุดตัวเลข")
