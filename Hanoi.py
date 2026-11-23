@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime
 import pandas as pd
 import streamlit as st
@@ -10,6 +11,7 @@ from collections import Counter, defaultdict
 # ================================================================
 
 CSV_FILE = "history_hanoi.csv"
+DAILY_CONFIG_FILE = "daily_numbers.json"
 MIN_HISTORY_FOR_DYNAMIC_WEIGHT = 10
 RECENT_WINDOW = 30
 
@@ -23,6 +25,36 @@ DEFAULT_DAILY_NUMBERS = {
     "Saturday": "823107",
     "Sunday": "234809",
 }
+
+DAYS_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+DAILY_MODES = ["Manual", "Hybrid", "Dynamic"]
+
+def load_daily_config():
+    """โหลดเลขประจำวันและโหมดจาก JSON; หากไม่มีไฟล์ให้ใช้ค่าเริ่มต้น"""
+    config = {"mode": "Hybrid", "numbers": DEFAULT_DAILY_NUMBERS.copy()}
+    if os.path.exists(DAILY_CONFIG_FILE):
+        try:
+            with open(DAILY_CONFIG_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            config["mode"] = saved.get("mode", "Hybrid")
+            if config["mode"] not in DAILY_MODES:
+                config["mode"] = "Hybrid"
+            saved_numbers = saved.get("numbers", {})
+            for day in DAYS_ORDER:
+                value = str(saved_numbers.get(day, config["numbers"][day])).strip()
+                if value.isdigit() and len(value) == 6:
+                    config["numbers"][day] = value
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+    return config
+
+def save_daily_config(config):
+    """บันทึกเลขประจำวันเป็น JSON โดยเก็บเลขเป็นข้อความเพื่อรักษาเลข 0 นำหน้า"""
+    payload = {"mode": config.get("mode", "Hybrid"), "numbers": config.get("numbers", {})}
+    with open(DAILY_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+DAILY_CONFIG = load_daily_config()
 
 FORMULAS = [
     "Carry Over",
@@ -158,28 +190,44 @@ def get_transformations(top_3_str, bottom_2_str="00"):
     }
 
 
-def daily_number_for_day(day, history=None):
-    """สร้าง Daily Number แบบ Dynamic จากข้อมูลเดิม หากมี history มากพอ.
-    ถ้ายังมีข้อมูลน้อย จะใช้ชุดตั้งต้นจากเวอร์ชันเดิม.
-    """
-    base = DEFAULT_DAILY_NUMBERS.get(day, "000000")
+def calculate_dynamic_daily(day, history=None, manual_base=None):
+    """คำนวณ Daily Number จาก History โดยไม่แก้ไขค่า Manual ที่บันทึกไว้."""
+    base = manual_base or DEFAULT_DAILY_NUMBERS.get(day, "000000")
     if history is None or len(history) < MIN_HISTORY_FOR_DYNAMIC_WEIGHT:
         return base
 
-    # ใช้ความถี่ digit จากผล 3D+2D ในงวดล่าสุด โดยผสมกับ Daily เดิม
     recent = history.tail(min(RECENT_WINDOW, len(history)))
     freq = Counter()
     for _, row in recent.iterrows():
         freq.update(str(row["top_3"]))
         freq.update(str(row["bottom_2"]))
 
-    # คะแนน = ความถี่ + โบนัสเลขจาก daily เดิม เพื่อไม่ให้ระบบเปลี่ยนแรงเกินไป
     score = {str(i): float(freq[str(i)]) for i in range(10)}
-    for d in base:
-        score[d] += 1.5
-
-    ordered = sorted(score, key=lambda d: (-score[d], d))
+    for digit in base:
+        score[digit] += 1.5
+    ordered = sorted(score, key=lambda digit: (-score[digit], digit))
     return "".join(ordered[:6])
+
+def daily_number_for_day(day, history=None):
+    """คืนค่า Daily Number ตามโหมด Manual / Hybrid / Dynamic ที่ผู้ใช้บันทึกไว้."""
+    manual = DAILY_CONFIG.get("numbers", DEFAULT_DAILY_NUMBERS).get(
+        day, DEFAULT_DAILY_NUMBERS.get(day, "000000")
+    )
+    mode = DAILY_CONFIG.get("mode", "Hybrid")
+    dynamic = calculate_dynamic_daily(day, history, manual)
+
+    if mode == "Dynamic":
+        return dynamic
+    if mode == "Hybrid":
+        # ให้เลข Manual มาก่อน แล้วเติมเลขที่ไม่ซ้ำจาก Dynamic จนครบ 6 ตัว
+        merged = list(dict.fromkeys(manual))
+        for digit in dynamic:
+            if digit not in merged:
+                merged.append(digit)
+            if len(merged) == 6:
+                break
+        return "".join(merged[:6]).ljust(6, "0")
+    return manual
 
 
 def formula_candidates(base_t3, base_b2, next_day, history=None):
@@ -502,7 +550,7 @@ def main():
     initialize_csv()
 
     st.title("🎯 หวยฮานอย 2026")
-    st.caption("Dynamic Backtest + Formula Accuracy + Weighted Prediction")
+    st.caption("Manual + Dynamic Hybrid Daily Number | Dynamic Backtest + Formula Accuracy + Weighted Prediction")
 
     df = get_app_history()
     df_desc = df.sort_values("dt", ascending=False).reset_index(drop=True) if not df.empty else df
@@ -653,26 +701,90 @@ def main():
             st.dataframe(df_desc[columns], use_container_width=True, hide_index=True)
 
     with tab5:
-        st.subheader("📅 Daily Numbers")
-        daily_rows = [
-            {
-                "Day": DAY_TH[day],
-                "Daily Number": daily_number_for_day(day, df),
-                "Calculation": "Dynamic" if len(df) >= MIN_HISTORY_FOR_DYNAMIC_WEIGHT else "Default",
-            }
-            for day in DAYS_ORDER
-        ]
-        st.dataframe(pd.DataFrame(daily_rows), use_container_width=True, hide_index=True)
-        if len(df) >= MIN_HISTORY_FOR_DYNAMIC_WEIGHT:
-            st.success(
-                f"มี History {len(df)} งวด ระบบคำนวณ Daily Number แบบ Dynamic "
-                f"โดยใช้ข้อมูลล่าสุดไม่เกิน {RECENT_WINDOW} งวดจาก History รวม"
+        st.subheader("📅 ตั้งค่าเลขประจำวัน (Daily Number)")
+        st.caption("แก้ไขเลขได้ครบ 6 หลักทุกวัน ระบบจะบันทึกเป็นข้อความเพื่อรักษาเลข 0 ด้านหน้า")
+
+        current_config = load_daily_config()
+        with st.form("daily_number_settings_form"):
+            mode = st.selectbox(
+                "โหมดการทำงาน",
+                DAILY_MODES,
+                index=DAILY_MODES.index(current_config.get("mode", "Hybrid")),
+                help="Manual = ใช้เลขที่กำหนดเอง | Hybrid = ใช้ Manual ก่อนแล้วเติมจาก Dynamic | Dynamic = ให้ AI คำนวณอัตโนมัติ"
             )
-        else:
-            st.info(
-                f"History ยังไม่ถึง {MIN_HISTORY_FOR_DYNAMIC_WEIGHT} งวด "
-                "จึงใช้ Default Daily Number ตามโค้ดต้นฉบับ"
-            )
+            edited_numbers = {}
+            cols = st.columns(2)
+            for i, day in enumerate(DAYS_ORDER):
+                with cols[i % 2]:
+                    edited_numbers[day] = st.text_input(
+                        DAY_TH[day],
+                        value=current_config["numbers"].get(day, DEFAULT_DAILY_NUMBERS[day]),
+                        max_chars=6,
+                        key=f"daily_edit_{day}"
+                    )
+            save_daily = st.form_submit_button("💾 บันทึกเลขประจำวัน", type="primary", use_container_width=True)
+
+        if save_daily:
+            invalid = [DAY_TH[d] for d, value in edited_numbers.items()
+                       if not value.strip().isdigit() or len(value.strip()) != 6]
+            if invalid:
+                st.error("กรุณากรอกตัวเลขให้ครบ 6 หลัก: " + ", ".join(invalid))
+            else:
+                new_config = {
+                    "mode": mode,
+                    "numbers": {d: edited_numbers[d].strip() for d in DAYS_ORDER}
+                }
+                try:
+                    save_daily_config(new_config)
+                    st.success("บันทึกเลขประจำวันทั้ง 7 วันเรียบร้อยแล้ว")
+                    st.rerun()
+                except OSError as exc:
+                    st.error(f"ไม่สามารถบันทึกไฟล์ {DAILY_CONFIG_FILE} ได้: {exc}")
+
+        st.divider()
+        st.subheader("📊 สรุปเลขที่ใช้งานจริง")
+        display_config = load_daily_config()
+        summary_rows = []
+        for day in DAYS_ORDER:
+            manual_value = display_config["numbers"][day]
+            dynamic_value = calculate_dynamic_daily(day, df, manual_value)
+            active_value = daily_number_for_day(day, df)
+            summary_rows.append({
+                "วัน": DAY_TH[day],
+                "Manual": manual_value,
+                "Dynamic": dynamic_value,
+                "เลขที่ Prediction ใช้": active_value,
+                "โหมด": display_config["mode"]
+            })
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+        st.download_button(
+            "⬇️ ดาวน์โหลดสำรองการตั้งค่า Daily Number (JSON)",
+            data=json.dumps(display_config, ensure_ascii=False, indent=2),
+            file_name="daily_numbers.json",
+            mime="application/json",
+            use_container_width=True
+        )
+        uploaded_daily = st.file_uploader("กู้คืนการตั้งค่า Daily Number จาก JSON", type=["json"], key="daily_config_upload")
+        if uploaded_daily is not None and st.button("นำเข้าการตั้งค่า Daily Number", key="restore_daily_config"):
+            try:
+                imported_config = json.load(uploaded_daily)
+                imported_numbers = imported_config.get("numbers", {})
+                if imported_config.get("mode", "Hybrid") not in DAILY_MODES:
+                    raise ValueError("โหมดไม่ถูกต้อง")
+                if any(not str(imported_numbers.get(d, "")).isdigit() or len(str(imported_numbers.get(d, ""))) != 6 for d in DAYS_ORDER):
+                    raise ValueError("ไฟล์ต้องมีเลขครบ 6 หลักสำหรับทั้ง 7 วัน")
+                save_daily_config({"mode": imported_config.get("mode", "Hybrid"),
+                                   "numbers": {d: str(imported_numbers[d]) for d in DAYS_ORDER}})
+                st.success("กู้คืนการตั้งค่าเรียบร้อยแล้ว")
+                st.rerun()
+            except (ValueError, TypeError, json.JSONDecodeError, OSError) as exc:
+                st.error(f"ไฟล์ตั้งค่าไม่ถูกต้อง: {exc}")
+
+        st.info(
+            "หมายเหตุ: Streamlit Cloud อาจรีเซ็ตไฟล์ในพื้นที่แอปเมื่อมีการ deploy/restart "
+            "แนะนำให้ดาวน์โหลด JSON สำรอง และนำกลับเข้าระบบได้ทุกเมื่อ"
+        )
 
 
 if __name__ == "__main__":
