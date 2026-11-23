@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 from collections import Counter, defaultdict
@@ -78,27 +79,38 @@ def initialize_csv():
         print(f"สร้าง {CSV_FILE} เริ่มต้นแล้ว")
 
 
+def normalize_history(df):
+    """Normalize text fields and sort chronologically (oldest -> newest)."""
+    out = df.copy()
+    required = ["date", "special", "first_prize", "top_3", "bottom_2"]
+    for col in required:
+        if col not in out.columns:
+            out[col] = ""
+        out[col] = out[col].fillna("").astype(str).str.strip()
+
+    # Keep leading zeros and fixed digit widths in every prize field.
+    for col in ("special", "first_prize"):
+        out[col] = out[col].apply(lambda x: zfill_num(x, 5) if x else "")
+    out["top_3"] = out["top_3"].apply(lambda x: zfill_num(x, 3) if x else "000")
+    out["bottom_2"] = out["bottom_2"].apply(lambda x: zfill_num(x, 2) if x else "00")
+
+    out["dt"] = out["date"].apply(parse_thai_date)
+    out = out.dropna(subset=["dt"]).copy()
+    out["weekday_en"] = out["dt"].dt.day_name()
+    out = out.sort_values("dt", ascending=True, kind="stable").reset_index(drop=True)
+    return out
+
+
 def load_history():
     if not os.path.exists(CSV_FILE):
         initialize_csv()
-    df = pd.read_csv(CSV_FILE, dtype=str).fillna("")
-    required = ["date", "special", "first_prize", "top_3", "bottom_2"]
-    for col in required:
-        if col not in df.columns:
-            df[col] = ""
-    df["dt"] = df["date"].apply(parse_thai_date)
-    df = df.dropna(subset=["dt"]).copy()
-    df["top_3"] = df["top_3"].apply(lambda x: zfill_num(x, 3))
-    df["bottom_2"] = df["bottom_2"].apply(lambda x: zfill_num(x, 2))
-    df["weekday_en"] = df["dt"].dt.day_name()
-    return df
+    df = pd.read_csv(CSV_FILE, dtype=str, keep_default_na=False)
+    return normalize_history(df)
 
 
 def save_history(df):
-    out = df.copy()
-    for col in ["dt", "weekday_en"]:
-        if col in out.columns:
-            out = out.drop(columns=[col])
+    out = normalize_history(df)
+    out = out[["date", "special", "first_prize", "top_3", "bottom_2"]]
     out.to_csv(CSV_FILE, index=False, encoding="utf-8-sig")
 
 
@@ -318,7 +330,7 @@ def digit_scores(df, next_day):
     if df.empty:
         return {str(i): 0.0 for i in range(10)}, {}, "000000"
 
-    latest = df.iloc[-1]
+    latest = df.loc[df["dt"].idxmax()]
     candidates, daily, trans = formula_candidates(
         latest["top_3"], latest["bottom_2"], next_day, df
     )
@@ -346,7 +358,7 @@ def generate_prediction(df, next_day):
     if df.empty:
         return None
 
-    latest = df.iloc[-1]
+    latest = df.loc[df["dt"].idxmax()]
     scores, weights, daily = digit_scores(df, next_day)
     ordered = sorted(scores, key=lambda d: (-scores[d], d))
     den = ordered[0]
@@ -417,7 +429,7 @@ def get_app_history():
     df = load_history()
     if df.empty:
         return df
-    return df.sort_values("dt", ascending=True).reset_index(drop=True)
+    return df.sort_values("dt", ascending=True, kind="stable").reset_index(drop=True)
 
 
 def render_prediction(df):
@@ -425,7 +437,7 @@ def render_prediction(df):
         st.warning("ยังไม่มีข้อมูล กรุณาเพิ่มผลรางวัลในแท็บ อัปเดต / ลบผลรางวัล")
         return
 
-    latest = df.iloc[-1]
+    latest = df.loc[df["dt"].idxmax()]
     suggested_day = (latest["dt"] + pd.Timedelta(days=1)).day_name()
     default_index = DAYS_ORDER.index(suggested_day) if suggested_day in DAYS_ORDER else 0
 
@@ -511,7 +523,7 @@ def main():
         uploaded = st.file_uploader("อัปโหลด CSV เพื่อกู้คืน / แทนที่ฐานข้อมูล", type=["csv"])
         if uploaded is not None:
             try:
-                imported = pd.read_csv(uploaded, dtype=str).fillna("")
+                imported = pd.read_csv(uploaded, dtype=str, keep_default_na=False)
                 required = ["date", "special", "first_prize", "top_3", "bottom_2"]
                 missing = [c for c in required if c not in imported.columns]
                 if missing:
@@ -550,7 +562,7 @@ def main():
         with add_col:
             st.subheader("➕ บันทึกผลรางวัลใหม่")
             if not df.empty:
-                next_date = df.iloc[-1]["dt"] + pd.Timedelta(days=1)
+                next_date = df["dt"].max() + pd.Timedelta(days=1)
                 default_date = f"{next_date.day:02d}/{next_date.month:02d}/{next_date.year + 543}"
             else:
                 now = datetime.now()
