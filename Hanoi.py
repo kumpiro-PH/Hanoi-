@@ -17,8 +17,8 @@ RECENT_WINDOW = 30
 DEFAULT_DAILY_NUMBERS = {
     "Monday": "921468",
     "Tuesday": "124670",
-    "Wednesday": "431560",
-    "Thursday": "541609",
+    "Wednesday": "456139",
+    "Thursday": "546013",
     "Friday": "865032",
     "Saturday": "319820",
     "Sunday": "325984",
