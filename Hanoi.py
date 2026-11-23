@@ -19,9 +19,9 @@ DEFAULT_DAILY_NUMBERS = {
     "Tuesday": "124670",
     "Wednesday": "456139",
     "Thursday": "546013",
-    "Friday": "865032",
-    "Saturday": "319820",
-    "Sunday": "325984",
+    "Friday": "978563",
+    "Saturday": "823107",
+    "Sunday": "234809",
 }
 
 FORMULAS = [
