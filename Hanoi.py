@@ -16,7 +16,7 @@ RECENT_WINDOW = 30
 # ชุดเลขประจำวันตั้งต้นจากไฟล์เดิม
 DEFAULT_DAILY_NUMBERS = {
     "Monday": "921468",
-    "Tuesday": "194286",
+    "Tuesday": "124670",
     "Wednesday": "431560",
     "Thursday": "541609",
     "Friday": "865032",
