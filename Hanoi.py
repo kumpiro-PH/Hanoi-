@@ -460,10 +460,11 @@ def render_prediction(df):
         return
 
     st.subheader(f"ผลวิเคราะห์ {DAY_TH[selected_day]} — Daily Number: `{pred['daily']}`")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("🎯 เลขเด่น", pred["den"], f"Score {pred['scores'][pred['den']]:.2f}")
-    m2.metric("🥈 เลขรอง", " - ".join(pred["rong"]))
-    m3.metric("🛡️ เลขกัน", " - ".join(pred["kan"]))
+    # แสดงผลวิเคราะห์แนวตั้ง 3 บรรทัดตามรูปแบบที่ผู้ใช้ต้องการ
+    st.markdown(f"### 🎯 เลขเด่น {pred['den']}")
+    st.caption(f"Score {pred['scores'][pred['den']]:.2f}")
+    st.markdown(f"### 🥈 เลขรอง {' - '.join(pred['rong'])}")
+    st.markdown(f"### 🛡️ เลขกัน {' - '.join(pred['kan'])}")
 
     st.divider()
     left, right = st.columns(2)
